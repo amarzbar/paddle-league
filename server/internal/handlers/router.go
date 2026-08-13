@@ -1,0 +1,49 @@
+package handlers
+
+import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/cors"
+	custommw "paddle-league/server/internal/middleware"
+)
+
+func NewRouter(a *API, allowedOrigin string) http.Handler {
+	r := chi.NewRouter()
+
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{allowedOrigin},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Content-Type"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
+
+	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	})
+
+	r.Route("/api", func(r chi.Router) {
+		r.Post("/auth/register", a.Register)
+		r.Post("/auth/login", a.Login)
+		r.Post("/auth/logout", a.Logout)
+
+		r.Group(func(r chi.Router) {
+			r.Use(custommw.RequireAuth(a.JWTSecret))
+
+			r.Get("/me", a.Me)
+
+			r.Post("/events", a.CreateEvent)
+			r.Get("/events", a.ListMyEvents)
+			r.Post("/events/join", a.JoinEvent)
+			r.Get("/events/{id}", a.GetEvent)
+			r.Post("/events/{id}/rounds", a.NextRound)
+			r.Post("/events/{id}/complete", a.CompleteEvent)
+			r.Get("/events/{id}/leaderboard", a.Leaderboard)
+
+			r.Post("/matches/{id}/score", a.Score)
+		})
+	})
+
+	return r
+}
