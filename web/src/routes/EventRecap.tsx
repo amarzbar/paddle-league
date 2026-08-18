@@ -1,6 +1,6 @@
 import { useNavigate, useParams } from "react-router-dom";
 import { FaTrophy } from "react-icons/fa";
-import { PrimaryButton } from "../components/ui";
+import { BackButton } from "../components/ui";
 import { LeaderboardRowItem } from "../components/LeaderboardRow";
 import { CourtScoreCard } from "../components/CourtScoreCard";
 import { usePolling } from "../lib/usePolling";
@@ -33,8 +33,9 @@ export default function EventRecap() {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <div style={{ backgroundColor: "#14304B", padding: "40px 24px 32px", flexShrink: 0, textAlign: "center" }}>
-        <div style={{ color: "#C4F135", marginBottom: 12 }}>
+      <div style={{ backgroundColor: "#14304B", padding: "16px 24px 32px", flexShrink: 0, textAlign: "center" }}>
+        <BackButton onPress={() => navigate("/")} dark />
+        <div style={{ color: "#C4F135", margin: "24px 0 12px", display: "flex", justifyContent: "center" }}>
           <FaTrophy size={32} />
         </div>
         <h1 style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 24, color: "#FBFAF7", marginBottom: 4 }}>
@@ -84,9 +85,6 @@ export default function EventRecap() {
         )}
       </div>
 
-      <div style={{ padding: "12px 20px 24px", flexShrink: 0 }}>
-        <PrimaryButton onClick={() => navigate("/")}>Back to events</PrimaryButton>
-      </div>
     </div>
   );
 }

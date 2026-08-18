@@ -135,7 +135,7 @@ export default function EventsHome() {
                 border: "1px solid rgba(232,230,224,0.7)",
               }}
             >
-              <div style={{ color: "#14304B", marginBottom: 8 }}>
+              <div style={{ color: "#14304B", marginBottom: 8, display: "flex", justifyContent: "center" }}>
                 <GiTennisBall size={28} />
               </div>
               <p style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 600, fontSize: 15, color: "#14304B" }}>
@@ -176,29 +176,6 @@ export default function EventsHome() {
         </div>
       </div>
 
-      <button
-        onClick={() => navigate("/events/new")}
-        className="active:scale-[0.96] transition-all"
-        style={{
-          position: "absolute",
-          bottom: 20,
-          right: 20,
-          height: 52,
-          padding: "0 22px",
-          borderRadius: 999,
-          backgroundColor: "#C4F135",
-          color: "#14304B",
-          fontFamily: "Space Grotesk, sans-serif",
-          fontWeight: 600,
-          fontSize: 14,
-          boxShadow: "0 8px 20px rgba(196,241,53,0.4)",
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-        }}
-      >
-        + Host a night
-      </button>
     </div>
   );
 }
