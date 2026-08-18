@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { GiTennisBall } from "react-icons/gi";
 import { Chip } from "../components/ui";
@@ -19,13 +19,16 @@ export default function EventsHome() {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<"all" | EventStatus>("all");
   const [joiningId, setJoiningId] = useState<string | null>(null);
+  const [pullDistance, setPullDistance] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const pullStartY = useRef<number | null>(null);
 
-  const { data: events, loading } = usePolling<PaddleEvent[]>(
+  const { data: events, loading, refetch: refetchEvents } = usePolling<PaddleEvent[]>(
     () => api.get<PaddleEvent[]>("/api/events"),
     [],
     5000,
   );
-  const { data: publicEvents } = usePolling<PaddleEvent[]>(
+  const { data: publicEvents, refetch: refetchPublicEvents } = usePolling<PaddleEvent[]>(
     () => api.get<PaddleEvent[]>("/api/events/public"),
     [],
     10000,
@@ -56,6 +59,13 @@ export default function EventsHome() {
     }
   };
 
+  const refresh = () => {
+    setRefreshing(true);
+    refetchEvents();
+    refetchPublicEvents();
+    window.setTimeout(() => setRefreshing(false), 500);
+  };
+
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
       <div style={{ padding: "20px 20px 12px", flexShrink: 0 }}>
@@ -63,7 +73,36 @@ export default function EventsHome() {
           Your events
         </h1>
       </div>
-      <div style={{ flex: 1, overflowY: "auto", paddingBottom: 100 }}>
+      <div
+        style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 100 }}
+        onTouchStart={(e) => {
+          if (e.currentTarget.scrollTop === 0) pullStartY.current = e.touches[0].clientY;
+        }}
+        onTouchMove={(e) => {
+          if (pullStartY.current === null) return;
+          setPullDistance(Math.min(72, Math.max(0, (e.touches[0].clientY - pullStartY.current) * 0.45)));
+        }}
+        onTouchEnd={() => {
+          if (pullDistance >= 56) refresh();
+          pullStartY.current = null;
+          setPullDistance(0);
+        }}
+      >
+        <div
+          aria-live="polite"
+          style={{
+            height: pullDistance,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            overflow: "hidden",
+            fontFamily: "Hanken Grotesk, sans-serif",
+            fontSize: 12,
+            color: "#6B6B63",
+          }}
+        >
+          {refreshing ? "Refreshing…" : pullDistance >= 56 ? "Release to refresh" : "Pull to refresh"}
+        </div>
         <CurrentGameSection events={events} />
         <div
           style={{
