@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { BackButton, Chip, PrimaryButton, SecondaryButton, GhostButton, Toast, Modal } from "../components/ui";
+import { BackButton, Chip, PrimaryButton, Toast } from "../components/ui";
 import { CourtScoreCard } from "../components/CourtScoreCard";
 import { usePolling } from "../lib/usePolling";
 import { api, ApiError } from "../lib/api";
@@ -29,8 +29,6 @@ export default function EventLive() {
   const { user: me } = useAuth();
   const [toast, setToast] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [view, setView] = useState<"mine" | "all">("mine");
   const [justAssigned, setJustAssigned] = useState(false);
   const prevMatchId = useRef<string | null>(null);
@@ -166,18 +164,6 @@ export default function EventLive() {
     }
   };
 
-  const handleDelete = async () => {
-    setDeleting(true);
-    try {
-      await api.del(`/api/events/${event.id}`);
-      navigate("/");
-    } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Couldn't delete the event.");
-      setDeleting(false);
-      setConfirmDelete(false);
-    }
-  };
-
   const boardMatches = currentRoundMatches(event);
   const visibleMatches = view === "mine" ? (myMatch ? [myMatch] : []) : boardMatches;
 
@@ -214,7 +200,7 @@ export default function EventLive() {
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "20px 20px 160px", display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: "20px 20px 96px", display: "flex", flexDirection: "column", gap: 14 }}>
         {view === "mine" && bye && (
           <div
             className="animate-fade-in"
@@ -315,33 +301,15 @@ export default function EventLive() {
             padding: "16px 20px",
             backgroundColor: "#FBFAF7",
             borderTop: "1px solid #E8E6E0",
-            display: "flex",
-            flexDirection: "column",
-            gap: 8,
           }}
         >
           <PrimaryButton onClick={handleEndEvent} disabled={ending} style={{ backgroundColor: "#FF6F59" }}>
             {ending ? "Ending…" : "Stop event"}
           </PrimaryButton>
-          <GhostButton onClick={() => setConfirmDelete(true)} style={{ color: "#FF6F59" }}>
-            Delete event
-          </GhostButton>
         </div>
       )}
 
       {toast && <Toast message={toast} />}
-
-      <Modal open={confirmDelete} onClose={() => setConfirmDelete(false)} title="Delete this event?">
-        <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 14, color: "#6B6B63", marginBottom: 20 }}>
-          This permanently removes the event, its schedule, and every score for everyone. This can't be undone.
-        </p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <PrimaryButton onClick={handleDelete} disabled={deleting} style={{ backgroundColor: "#FF6F59" }}>
-            {deleting ? "Deleting…" : "Delete event"}
-          </PrimaryButton>
-          <SecondaryButton onClick={() => setConfirmDelete(false)}>Cancel</SecondaryButton>
-        </div>
-      </Modal>
     </div>
   );
 }

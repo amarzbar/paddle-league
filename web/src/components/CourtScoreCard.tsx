@@ -137,7 +137,10 @@ export function CourtScoreCard({
   const team2Names = `${match.team2P1User?.displayName ?? "?"} & ${match.team2P2User?.displayName ?? "?"}`;
 
   const isPlayerHere = [match.team1P1, match.team1P2, match.team2P1, match.team2P2].includes(meId);
-  const canScore = (isPlayerHere || isHost) && match.status !== "completed";
+  const onTeam1 = meId === match.team1P1 || meId === match.team1P2;
+  const onTeam2 = meId === match.team2P1 || meId === match.team2P2;
+  const canScoreTeam1 = (isHost || onTeam1) && match.status !== "completed";
+  const canScoreTeam2 = (isHost || onTeam2) && match.status !== "completed";
 
   const handleDelta = (team: 1 | 2, delta: 1 | -1) => {
     onScore(team, delta);
@@ -206,14 +209,14 @@ export function CourtScoreCard({
             names={team1Names}
             score={match.team1Score}
             onDelta={(d) => handleDelta(1, d)}
-            canScore={canScore}
+            canScore={canScoreTeam1}
           />
           <TeamScoreRow
             label="Team 2"
             names={team2Names}
             score={match.team2Score}
             onDelta={(d) => handleDelta(2, d)}
-            canScore={canScore}
+            canScore={canScoreTeam2}
           />
         </div>
       )}

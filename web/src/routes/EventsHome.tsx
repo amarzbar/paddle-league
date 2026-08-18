@@ -62,76 +62,76 @@ export default function EventsHome() {
           Your events
         </h1>
       </div>
-      <CurrentGameSection events={events} />
-
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          padding: "0 20px 16px",
-          overflowX: "auto",
-          flexShrink: 0,
-        }}
-      >
-        {FILTERS.map((f) => (
-          <Chip key={f.id} label={f.label} active={filter === f.id} onClick={() => setFilter(f.id)} />
-        ))}
-      </div>
-
-      <div style={{ flex: 1, overflowY: "auto", padding: "0 20px 100px" }}>
-        {loading && !events && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <EventCardSkeleton />
-            <EventCardSkeleton />
-          </div>
-        )}
-
-        {events && filtered.length === 0 && (
-          <div
-            style={{
-              backgroundColor: "#FFFFFF",
-              borderRadius: 20,
-              padding: "32px 20px",
-              textAlign: "center",
-              border: "1px solid rgba(232,230,224,0.7)",
-            }}
-          >
-            <div style={{ fontSize: 28, marginBottom: 8 }}>🎾</div>
-            <p style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 600, fontSize: 15, color: "#14304B" }}>
-              No events yet
-            </p>
-            <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 13, color: "#6B6B63", marginTop: 4 }}>
-              Host a night or join one with a code.
-            </p>
-          </div>
-        )}
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {filtered.map((event) => (
-            <EventCard key={event.id} event={event} onPress={() => navigate(`/events/${event.id}`)} />
+      <div style={{ flex: 1, overflowY: "auto", paddingBottom: 100 }}>
+        <CurrentGameSection events={events} />
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            padding: "0 20px 16px",
+            overflowX: "auto",
+          }}
+        >
+          {FILTERS.map((f) => (
+            <Chip key={f.id} label={f.label} active={filter === f.id} onClick={() => setFilter(f.id)} />
           ))}
         </div>
 
-        {joinablePublicEvents.length > 0 && (
-          <div style={{ marginTop: 28 }}>
-            <h2 style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#14304B", marginBottom: 10 }}>
-              Available events
-            </h2>
-            <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 12, color: "#6B6B63", marginBottom: 12 }}>
-              Public - join with one tap, no code needed.
-            </p>
+        <div style={{ padding: "0 20px" }}>
+          {loading && !events && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {joinablePublicEvents.map((event) => (
-                <EventCard
-                  key={event.id}
-                  event={event}
-                  onPress={() => handleJoinPublic(event.id)}
-                  joining={joiningId === event.id}
-                />
-              ))}
+              <EventCardSkeleton />
+              <EventCardSkeleton />
             </div>
+          )}
+
+          {events && filtered.length === 0 && (
+            <div
+              style={{
+                backgroundColor: "#FFFFFF",
+                borderRadius: 20,
+                padding: "32px 20px",
+                textAlign: "center",
+                border: "1px solid rgba(232,230,224,0.7)",
+              }}
+            >
+              <div style={{ fontSize: 28, marginBottom: 8 }}>🎾</div>
+              <p style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 600, fontSize: 15, color: "#14304B" }}>
+                No events yet
+              </p>
+              <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 13, color: "#6B6B63", marginTop: 4 }}>
+                Host a night or join one with a code.
+              </p>
+            </div>
+          )}
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {filtered.map((event) => (
+              <EventCard key={event.id} event={event} onPress={() => navigate(`/events/${event.id}`)} />
+            ))}
           </div>
-        )}
+
+          {joinablePublicEvents.length > 0 && (
+            <div style={{ marginTop: 28 }}>
+              <h2 style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#14304B", marginBottom: 10 }}>
+                Available events
+              </h2>
+              <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 12, color: "#6B6B63", marginBottom: 12 }}>
+                Public - join with one tap, no code needed.
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {joinablePublicEvents.map((event) => (
+                  <EventCard
+                    key={event.id}
+                    event={event}
+                    onPress={() => handleJoinPublic(event.id)}
+                    joining={joiningId === event.id}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <button

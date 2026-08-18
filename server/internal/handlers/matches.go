@@ -117,6 +117,7 @@ type scoreReq struct {
 // target is even).
 func (a *API) Score(w http.ResponseWriter, r *http.Request) {
 	matchID := chi.URLParam(r, "id")
+	userID, _ := middleware.UserID(r.Context())
 	var req scoreReq
 	if err := decodeJSON(r, &req); err != nil || (req.Team != 1 && req.Team != 2) || (req.Delta != 1 && req.Delta != -1) {
 		writeErr(w, http.StatusBadRequest, "team must be 1 or 2, delta must be +1 or -1")
@@ -129,6 +130,14 @@ func (a *API) Score(w http.ResponseWriter, r *http.Request) {
 	}
 	if m.Status == "completed" {
 		writeErr(w, http.StatusConflict, "match is already completed")
+		return
+	}
+	onTeam1 := userID == m.Team1P1 || userID == m.Team1P2
+	onTeam2 := userID == m.Team2P1 || userID == m.Team2P2
+	var isHost bool
+	_ = a.DB.QueryRow(r.Context(), `SELECT host_id = $1 FROM events WHERE id = $2`, userID, m.EventID).Scan(&isHost)
+	if !isHost && ((req.Team == 1 && !onTeam1) || (req.Team == 2 && !onTeam2)) {
+		writeErr(w, http.StatusForbidden, "you can only update your team's score")
 		return
 	}
 	// The whole schedule is precomputed up front, so every round's matches
