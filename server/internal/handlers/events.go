@@ -27,13 +27,12 @@ func genJoinCode() string {
 	return string(b)
 }
 
-const fixedCourtCount = 4 // Americano nights in this app always run on 4 courts
-
 type createEventReq struct {
 	Name             string `json:"name"`
 	PointsToWin      int    `json:"pointsToWin"` // target COMBINED total for a match, Americano-style
 	TimeLimitSeconds int    `json:"timeLimitSeconds"`
 	IsPublic         bool   `json:"isPublic"`
+	CourtCount       int    `json:"courtCount"`
 	TotalRounds      int    `json:"totalRounds"`
 }
 
@@ -54,6 +53,9 @@ func (a *API) CreateEvent(w http.ResponseWriter, r *http.Request) {
 	if req.TimeLimitSeconds < 0 {
 		req.TimeLimitSeconds = 0
 	}
+	if req.CourtCount < 1 || req.CourtCount > 4 {
+		req.CourtCount = 4
+	}
 	if req.TotalRounds <= 0 {
 		req.TotalRounds = 8
 	}
@@ -66,7 +68,7 @@ func (a *API) CreateEvent(w http.ResponseWriter, r *http.Request) {
 			INSERT INTO events (host_id, name, join_code, points_to_win, time_limit_seconds, is_public, court_count, total_rounds)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			RETURNING id, host_id, name, join_code, status, points_to_win, time_limit_seconds, current_round, is_public, court_count, total_rounds, created_at, started_at, completed_at
-		`, userID, req.Name, code, req.PointsToWin, req.TimeLimitSeconds, req.IsPublic, fixedCourtCount, req.TotalRounds).Scan(
+		`, userID, req.Name, code, req.PointsToWin, req.TimeLimitSeconds, req.IsPublic, req.CourtCount, req.TotalRounds).Scan(
 			&ev.ID, &ev.HostID, &ev.Name, &ev.JoinCode, &ev.Status, &ev.PointsToWin, &ev.TimeLimitSeconds, &ev.CurrentRound,
 			&ev.IsPublic, &ev.CourtCount, &ev.TotalRounds, &ev.CreatedAt, &ev.StartedAt, &ev.CompletedAt,
 		)

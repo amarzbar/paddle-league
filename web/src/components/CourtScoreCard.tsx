@@ -116,6 +116,7 @@ export function CourtScoreCard({
   onScore,
   timeLimitSeconds,
   onTimeout,
+  featured = false,
 }: {
   match: Match;
   meId: string;
@@ -126,6 +127,8 @@ export function CourtScoreCard({
   /** Fired once, client-side, the instant the countdown reaches zero - the
    * caller is expected to call the /timeout endpoint here. */
   onTimeout?: () => void;
+  /** Use the larger score display for the user's current game. */
+  featured?: boolean;
 }) {
   const [flashTeam, setFlashTeam] = useState<1 | 2 | null>(null);
   const remaining = useMatchCountdown(match, timeLimitSeconds, onTimeout);
@@ -153,7 +156,7 @@ export function CourtScoreCard({
         width: "100%",
         backgroundColor: "#FFFFFF",
         borderRadius: 20,
-        padding: 16,
+        padding: featured ? 24 : 16,
         border: "1px solid rgba(232,230,224,0.7)",
         boxShadow: "0 4px 12px rgba(20,48,75,.06)",
       }}
@@ -192,7 +195,7 @@ export function CourtScoreCard({
           team1Score={match.team1Score}
           team2Score={match.team2Score}
           flashTeam={flashTeam}
-          size="lg"
+          size={featured ? "xl" : "lg"}
         />
       </div>
 

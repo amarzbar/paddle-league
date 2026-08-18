@@ -58,11 +58,11 @@ export default function EventsHome() {
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
       <div style={{ padding: "20px 20px 12px", flexShrink: 0 }}>
-        <h1 style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 24, color: "#14304B", marginBottom: 16 }}>
+        <h1 style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 24, color: "#14304B" }}>
           Your events
         </h1>
-        <CurrentGameSection events={events} />
       </div>
+      <CurrentGameSection events={events} />
 
       <div
         style={{

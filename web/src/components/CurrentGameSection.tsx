@@ -104,7 +104,7 @@ export function CurrentGameSection({ events }: { events: PaddleEvent[] | null })
   };
 
   return (
-    <div style={{ marginBottom: 24 }}>
+    <section style={{ padding: "0 20px", marginBottom: 24 }}>
       <h2 style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#14304B", marginBottom: 10 }}>
         Your current game
       </h2>
@@ -157,8 +157,9 @@ export function CurrentGameSection({ events }: { events: PaddleEvent[] | null })
           onScore={(team, delta) => handleScore(myMatch.id, team, delta)}
           timeLimitSeconds={event.timeLimitSeconds}
           onTimeout={() => handleTimeout(myMatch.id)}
+          featured
         />
       )}
-    </div>
+    </section>
   );
 }

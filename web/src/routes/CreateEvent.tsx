@@ -10,11 +10,15 @@ import type { PaddleEvent } from "../lib/types";
 // 24 might end 24-0, or 13-11, whatever adds up to 24 first. An even target
 // makes a tied split (12-12 of 24) a possible draw; odd targets can't tie.
 const PRESETS = [
+  { pointsToWin: 12, sublabel: "Fast" },
   { pointsToWin: 16, sublabel: "Quick game" },
+  { pointsToWin: 18, sublabel: "Short set" },
+  { pointsToWin: 21, sublabel: "Classic" },
   { pointsToWin: 24, sublabel: "Standard" },
   { pointsToWin: 32, sublabel: "Full set" },
-  { pointsToWin: 40, sublabel: "Long night" },
 ];
+
+const COURT_OPTIONS = [1, 2, 3, 4];
 
 const TIME_LIMIT_OPTIONS = [
   { minutes: 0, label: "No limit" },
@@ -27,9 +31,10 @@ export default function CreateEvent() {
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
-  const [presetIndex, setPresetIndex] = useState<number | null>(1);
+  const [presetIndex, setPresetIndex] = useState<number | null>(4);
   const [customizing, setCustomizing] = useState(false);
   const [pointsToWin, setPointsToWin] = useState(24);
+  const [courtCount, setCourtCount] = useState(4);
   const [timeLimitMinutes, setTimeLimitMinutes] = useState(0);
   const [totalRounds, setTotalRounds] = useState(8);
   const [isPublic, setIsPublic] = useState(false);
@@ -50,6 +55,7 @@ export default function CreateEvent() {
         name: name.trim() || "Racket Night",
         pointsToWin,
         timeLimitSeconds: timeLimitMinutes * 60,
+        courtCount,
         totalRounds,
         isPublic,
       });
@@ -75,7 +81,7 @@ export default function CreateEvent() {
               Host a night
             </h1>
             <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 14, color: "#6B6B63", marginBottom: 24 }}>
-              Americano rules on 4 courts: the whole schedule is shuffled up front so partners never repeat where
+              Americano rules on up to 4 courts: the whole schedule is shuffled up front so partners never repeat where
               possible, and everyone can see their matchups for the night as soon as it starts.
             </p>
 
@@ -121,6 +127,20 @@ export default function CreateEvent() {
                 />
               </div>
             )}
+
+            <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 600, fontSize: 13, color: "#14304B", margin: "20px 0 10px" }}>
+              Available courts
+            </p>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {COURT_OPTIONS.map((count) => (
+                <Chip
+                  key={count}
+                  label={`${count} ${count === 1 ? "court" : "courts"}`}
+                  active={courtCount === count}
+                  onClick={() => setCourtCount(count)}
+                />
+              ))}
+            </div>
 
             <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 600, fontSize: 13, color: "#14304B", margin: "20px 0 4px" }}>
               Time limit
@@ -175,7 +195,7 @@ export default function CreateEvent() {
               {[
                 ["Race to (combined)", pointsToWin],
                 ["Time limit", timeLimitMinutes > 0 ? `${timeLimitMinutes} min` : "None"],
-                ["Courts", 4],
+                ["Courts", courtCount],
                 ["Rounds", totalRounds],
                 ["Visibility", isPublic ? "Public" : "Private"],
               ].map(([label, value]) => (
