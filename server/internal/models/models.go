@@ -11,18 +11,20 @@ type User struct {
 }
 
 type Event struct {
-	ID           string     `json:"id"`
-	HostID       string     `json:"hostId"`
-	Name         string     `json:"name"`
-	JoinCode     string     `json:"joinCode"`
-	Status       string     `json:"status"` // lobby | active | completed
-	PointsToWin  int        `json:"pointsToWin"`
-	WinBy        int        `json:"winBy"`
-	MaxPoints    int        `json:"maxPoints"`
-	CurrentRound int        `json:"currentRound"`
-	CreatedAt    time.Time  `json:"createdAt"`
-	StartedAt    *time.Time `json:"startedAt,omitempty"`
-	CompletedAt  *time.Time `json:"completedAt,omitempty"`
+	ID               string     `json:"id"`
+	HostID           string     `json:"hostId"`
+	Name             string     `json:"name"`
+	JoinCode         string     `json:"joinCode"`
+	Status           string     `json:"status"`           // lobby | active | completed
+	PointsToWin      int        `json:"pointsToWin"`      // target COMBINED total (team1Score + team2Score), Americano-style - not a per-team target
+	TimeLimitSeconds int        `json:"timeLimitSeconds"` // 0 = no limit; safety net - whoever's ahead when time's up wins, tied is a draw
+	CurrentRound     int        `json:"currentRound"`
+	IsPublic         bool       `json:"isPublic"`
+	CourtCount       int        `json:"courtCount"`
+	TotalRounds      int        `json:"totalRounds"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	StartedAt        *time.Time `json:"startedAt,omitempty"`
+	CompletedAt      *time.Time `json:"completedAt,omitempty"`
 }
 
 type Participant struct {
@@ -70,6 +72,7 @@ type LeaderboardRow struct {
 	AvatarColor   string  `json:"avatarColor"`
 	Wins          int     `json:"wins"`
 	Losses        int     `json:"losses"`
+	Draws         int     `json:"draws"`
 	MatchesPlayed int     `json:"matchesPlayed"`
 	PointsFor     int     `json:"pointsFor"`
 	PointsAgainst int     `json:"pointsAgainst"`

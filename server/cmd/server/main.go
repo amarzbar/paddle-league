@@ -30,9 +30,10 @@ func main() {
 	}
 
 	api := &handlers.API{
-		DB:        pool,
-		JWTSecret: cfg.JWTSecret,
-		Prod:      os.Getenv("ENV") == "production",
+		DB:               pool,
+		JWTSecret:        cfg.JWTSecret,
+		Prod:             os.Getenv("ENV") == "production",
+		CrossSiteCookies: cfg.CrossSiteCookies,
 	}
 
 	router := handlers.NewRouter(api, cfg.AllowedOrigin)

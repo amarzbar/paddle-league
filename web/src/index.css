@@ -50,6 +50,14 @@ html,
 body,
 #root {
   height: 100%;
+  /* Belt-and-suspenders against pinch-zoom, alongside the viewport meta tag:
+     iOS/WebKit (Safari and any iOS browser, since they're all WebKit under
+     the hood) intentionally ignores user-scalable=no/maximum-scale in real
+     standalone/installed contexts for accessibility reasons - touch-action
+     is respected more consistently. pan-x/pan-y keep normal scrolling
+     (vertical lists, the horizontal filter-chip row) working; pinch-zoom
+     just isn't in the allowed list. */
+  touch-action: pan-x pan-y;
 }
 
 body {

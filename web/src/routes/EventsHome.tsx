@@ -2,8 +2,9 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Chip } from "../components/ui";
 import { EventCard, EventCardSkeleton } from "../components/EventCard";
+import { CurrentGameSection } from "../components/CurrentGameSection";
 import { usePolling } from "../lib/usePolling";
-import { api } from "../lib/api";
+import { api, ApiError } from "../lib/api";
 import type { PaddleEvent, EventStatus } from "../lib/types";
 
 const FILTERS: { id: "all" | EventStatus; label: string }[] = [
@@ -16,11 +17,17 @@ const FILTERS: { id: "all" | EventStatus; label: string }[] = [
 export default function EventsHome() {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<"all" | EventStatus>("all");
+  const [joiningId, setJoiningId] = useState<string | null>(null);
 
   const { data: events, loading } = usePolling<PaddleEvent[]>(
     () => api.get<PaddleEvent[]>("/api/events"),
     [],
     5000,
+  );
+  const { data: publicEvents } = usePolling<PaddleEvent[]>(
+    () => api.get<PaddleEvent[]>("/api/events/public"),
+    [],
+    10000,
   );
 
   const filtered = useMemo(() => {
@@ -29,12 +36,32 @@ export default function EventsHome() {
     return events.filter((e) => e.status === filter);
   }, [events, filter]);
 
+  const myEventIds = useMemo(() => new Set((events ?? []).map((e) => e.id)), [events]);
+  // Public events I haven't already joined - once I'm in, it just shows up
+  // in "Your events" like anything else.
+  const joinablePublicEvents = useMemo(
+    () => (publicEvents ?? []).filter((e) => !myEventIds.has(e.id)),
+    [publicEvents, myEventIds],
+  );
+
+  const handleJoinPublic = async (eventId: string) => {
+    setJoiningId(eventId);
+    try {
+      await api.post(`/api/events/${eventId}/join`);
+      navigate(`/events/${eventId}`);
+    } catch (err) {
+      setJoiningId(null);
+      if (!(err instanceof ApiError)) throw err;
+    }
+  };
+
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
       <div style={{ padding: "20px 20px 12px", flexShrink: 0 }}>
-        <h1 style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 24, color: "#14304B" }}>
+        <h1 style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 24, color: "#14304B", marginBottom: 16 }}>
           Your events
         </h1>
+        <CurrentGameSection events={events} />
       </div>
 
       <div
@@ -84,6 +111,27 @@ export default function EventsHome() {
             <EventCard key={event.id} event={event} onPress={() => navigate(`/events/${event.id}`)} />
           ))}
         </div>
+
+        {joinablePublicEvents.length > 0 && (
+          <div style={{ marginTop: 28 }}>
+            <h2 style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#14304B", marginBottom: 10 }}>
+              Available events
+            </h2>
+            <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 12, color: "#6B6B63", marginBottom: 12 }}>
+              Public - join with one tap, no code needed.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {joinablePublicEvents.map((event) => (
+                <EventCard
+                  key={event.id}
+                  event={event}
+                  onPress={() => handleJoinPublic(event.id)}
+                  joining={joiningId === event.id}
+                />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <button

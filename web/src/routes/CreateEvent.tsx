@@ -1,21 +1,26 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { BackButton, PrimaryButton, GhostButton, ProgressDots, TextInput } from "../components/ui";
+import { BackButton, PrimaryButton, GhostButton, ProgressDots, TextInput, Chip } from "../components/ui";
 import { PointsFormatPill } from "../components/PointsFormatPill";
 import { api, ApiError } from "../lib/api";
 import type { PaddleEvent } from "../lib/types";
 
-// maxPoints === pointsToWin for every preset: reaching the target always
-// ends the match outright (the backend's hitCap check fires the instant the
-// leader reaches maxPoints, regardless of the trailing team's score), so
-// there's no win-by-2 grace period at the target - e.g. 24-23 ends the game
-// immediately. winBy still matters below the target (need to be ahead by 2
-// to win before reaching the cap), just not once you hit it.
+// Real Americano scoring: each match plays to a fixed COMBINED total between
+// both teams (not a per-team target with a win-by-2 margin) - e.g. a race to
+// 24 might end 24-0, or 13-11, whatever adds up to 24 first. An even target
+// makes a tied split (12-12 of 24) a possible draw; odd targets can't tie.
 const PRESETS = [
-  { pointsToWin: 11, winBy: 2, maxPoints: 11, sublabel: "Quick game" },
-  { pointsToWin: 15, winBy: 2, maxPoints: 15, sublabel: "Standard" },
-  { pointsToWin: 21, winBy: 2, maxPoints: 21, sublabel: "Full set" },
-  { pointsToWin: 24, winBy: 2, maxPoints: 24, sublabel: "Long night" },
+  { pointsToWin: 16, sublabel: "Quick game" },
+  { pointsToWin: 24, sublabel: "Standard" },
+  { pointsToWin: 32, sublabel: "Full set" },
+  { pointsToWin: 40, sublabel: "Long night" },
+];
+
+const TIME_LIMIT_OPTIONS = [
+  { minutes: 0, label: "No limit" },
+  { minutes: 10, label: "10 min" },
+  { minutes: 15, label: "15 min" },
+  { minutes: 20, label: "20 min" },
 ];
 
 export default function CreateEvent() {
@@ -24,9 +29,10 @@ export default function CreateEvent() {
   const [name, setName] = useState("");
   const [presetIndex, setPresetIndex] = useState<number | null>(1);
   const [customizing, setCustomizing] = useState(false);
-  const [pointsToWin, setPointsToWin] = useState(15);
-  const [winBy, setWinBy] = useState(2);
-  const [maxPoints, setMaxPoints] = useState(15);
+  const [pointsToWin, setPointsToWin] = useState(24);
+  const [timeLimitMinutes, setTimeLimitMinutes] = useState(0);
+  const [totalRounds, setTotalRounds] = useState(8);
+  const [isPublic, setIsPublic] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -34,8 +40,6 @@ export default function CreateEvent() {
     setPresetIndex(i);
     setCustomizing(false);
     setPointsToWin(PRESETS[i].pointsToWin);
-    setWinBy(PRESETS[i].winBy);
-    setMaxPoints(PRESETS[i].maxPoints);
   };
 
   const handlePublish = async () => {
@@ -45,8 +49,9 @@ export default function CreateEvent() {
       const event = await api.post<PaddleEvent>("/api/events", {
         name: name.trim() || "Racket Night",
         pointsToWin,
-        winBy,
-        maxPoints,
+        timeLimitSeconds: timeLimitMinutes * 60,
+        totalRounds,
+        isPublic,
       });
       navigate(`/events/${event.id}`);
     } catch (err) {
@@ -70,7 +75,8 @@ export default function CreateEvent() {
               Host a night
             </h1>
             <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 14, color: "#6B6B63", marginBottom: 24 }}>
-              Everyone plays every round, teams never repeat, and courts run in parallel once you've got 4+ players.
+              Americano rules on 4 courts: the whole schedule is shuffled up front so partners never repeat where
+              possible, and everyone can see their matchups for the night as soon as it starts.
             </p>
 
             <div style={{ marginBottom: 24 }}>
@@ -82,8 +88,11 @@ export default function CreateEvent() {
               />
             </div>
 
-            <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 600, fontSize: 13, color: "#14304B", marginBottom: 10 }}>
-              Play to
+            <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 600, fontSize: 13, color: "#14304B", marginBottom: 4 }}>
+              Race to
+            </p>
+            <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 12, color: "#6B6B63", marginBottom: 10 }}>
+              Combined total between both teams - e.g. a race to 24 could end 24-0 or 13-11.
             </p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
               {PRESETS.map((p, i) => (
@@ -98,40 +107,59 @@ export default function CreateEvent() {
             </div>
 
             <GhostButton onClick={() => setCustomizing((c) => !c)} className="!justify-start !px-0">
-              {customizing ? "Hide custom settings" : "Customize win-by / cap"}
+              {customizing ? "Hide custom total" : "Customize race-to total"}
             </GhostButton>
 
             {customizing && (
-              <div className="animate-fade-in" style={{ display: "flex", gap: 12, marginTop: 8 }}>
-                <div style={{ flex: 1 }}>
-                  <TextInput
-                    label="Points to win"
-                    type="number"
-                    min={1}
-                    value={pointsToWin}
-                    onChange={(e) => setPointsToWin(Number(e.target.value))}
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <TextInput
-                    label="Win by"
-                    type="number"
-                    min={1}
-                    value={winBy}
-                    onChange={(e) => setWinBy(Number(e.target.value))}
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <TextInput
-                    label="Hard cap"
-                    type="number"
-                    min={pointsToWin}
-                    value={maxPoints}
-                    onChange={(e) => setMaxPoints(Number(e.target.value))}
-                  />
-                </div>
+              <div className="animate-fade-in" style={{ marginTop: 8, maxWidth: 160 }}>
+                <TextInput
+                  label="Race to (combined)"
+                  type="number"
+                  min={2}
+                  value={pointsToWin}
+                  onChange={(e) => setPointsToWin(Math.max(2, Number(e.target.value)))}
+                />
               </div>
             )}
+
+            <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 600, fontSize: 13, color: "#14304B", margin: "20px 0 4px" }}>
+              Time limit
+            </p>
+            <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 12, color: "#6B6B63", marginBottom: 10 }}>
+              Safety net, not the main way matches end - if a match runs long, whoever's ahead when time's up wins
+              (tied is a draw).
+            </p>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {TIME_LIMIT_OPTIONS.map((t) => (
+                <Chip
+                  key={t.minutes}
+                  label={t.label}
+                  active={timeLimitMinutes === t.minutes}
+                  onClick={() => setTimeLimitMinutes(t.minutes)}
+                />
+              ))}
+            </div>
+
+            <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 600, fontSize: 13, color: "#14304B", margin: "20px 0 10px" }}>
+              Rounds
+            </p>
+            <div style={{ maxWidth: 160 }}>
+              <TextInput
+                label="Total rounds"
+                type="number"
+                min={1}
+                value={totalRounds}
+                onChange={(e) => setTotalRounds(Math.max(1, Number(e.target.value)))}
+              />
+            </div>
+
+            <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 600, fontSize: 13, color: "#14304B", margin: "20px 0 10px" }}>
+              Visibility
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Chip label="Private (join code)" active={!isPublic} onClick={() => setIsPublic(false)} />
+              <Chip label="Public (listed for anyone)" active={isPublic} onClick={() => setIsPublic(true)} />
+            </div>
           </div>
         )}
 
@@ -145,9 +173,11 @@ export default function CreateEvent() {
                 {name.trim() || "Racket Night"}
               </div>
               {[
-                ["Points to win", pointsToWin],
-                ["Win by", winBy],
-                ["Hard cap", maxPoints],
+                ["Race to (combined)", pointsToWin],
+                ["Time limit", timeLimitMinutes > 0 ? `${timeLimitMinutes} min` : "None"],
+                ["Courts", 4],
+                ["Rounds", totalRounds],
+                ["Visibility", isPublic ? "Public" : "Private"],
               ].map(([label, value]) => (
                 <div
                   key={label as string}

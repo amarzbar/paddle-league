@@ -17,10 +17,15 @@ export interface PaddleEvent {
   name: string;
   joinCode: string;
   status: EventStatus;
+  /** Target COMBINED total (team1Score + team2Score) a match plays to,
+   * Americano-style - not a per-team target. */
   pointsToWin: number;
-  winBy: number;
-  maxPoints: number;
+  /** 0 = no limit. Safety net: whoever's ahead when time's up wins, tied is a draw. */
+  timeLimitSeconds: number;
   currentRound: number;
+  isPublic: boolean;
+  courtCount: number;
+  totalRounds: number;
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
@@ -47,7 +52,9 @@ export interface Match {
   team1Score: number;
   team2Score: number;
   status: MatchStatus;
-  winner?: 1 | 2;
+  /** 0 = draw (only possible when the event's pointsToWin target is even,
+   * or a match was cut off by the time limit while scores were level). */
+  winner?: 0 | 1 | 2;
   startedAt?: string;
   completedAt?: string;
   createdAt: string;
@@ -77,6 +84,7 @@ export interface LeaderboardRow {
   avatarColor: string;
   wins: number;
   losses: number;
+  draws: number;
   matchesPlayed: number;
   pointsFor: number;
   pointsAgainst: number;
@@ -87,5 +95,7 @@ export interface ScoreResponse {
   team1Score: number;
   team2Score: number;
   status: MatchStatus;
-  winner?: 1 | 2;
+  /** 0 = draw (only possible when the event's pointsToWin target is even,
+   * or a match was cut off by the time limit while scores were level). */
+  winner?: 0 | 1 | 2;
 }

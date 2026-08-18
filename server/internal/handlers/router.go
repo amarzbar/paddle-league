@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	custommw "paddle-league/server/internal/middleware"
 )
@@ -11,6 +12,7 @@ import (
 func NewRouter(a *API, allowedOrigin string) http.Handler {
 	r := chi.NewRouter()
 
+	r.Use(middleware.Logger)
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{allowedOrigin},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
@@ -35,13 +37,18 @@ func NewRouter(a *API, allowedOrigin string) http.Handler {
 
 			r.Post("/events", a.CreateEvent)
 			r.Get("/events", a.ListMyEvents)
+			r.Get("/events/public", a.ListPublicEvents)
 			r.Post("/events/join", a.JoinEvent)
 			r.Get("/events/{id}", a.GetEvent)
-			r.Post("/events/{id}/rounds", a.NextRound)
+			r.Post("/events/{id}/join", a.JoinPublicEvent) // public events only - no code needed
+			r.Post("/events/{id}/start", a.StartEvent)     // precomputes + activates the whole Americano schedule
 			r.Post("/events/{id}/complete", a.CompleteEvent)
+			r.Post("/events/{id}/stop", a.CompleteEvent) // alias: host stopping an event early is the same action as completing it
+			r.Delete("/events/{id}", a.DeleteEvent)
 			r.Get("/events/{id}/leaderboard", a.Leaderboard)
 
 			r.Post("/matches/{id}/score", a.Score)
+			r.Post("/matches/{id}/timeout", a.Timeout) // client-side countdown hitting zero
 		})
 	})
 

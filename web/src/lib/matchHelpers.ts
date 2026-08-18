@@ -1,52 +1,68 @@
-import type { EventDetail, Match } from "./types";
-
-/**
- * Every non-completed match across *every* round - necessary under
- * continuous rotation, since multiple waves/rounds can be in flight at once
- * (courts finish and re-form independently, not in synchronized batches).
- */
-export function flattenActiveMatches(event: EventDetail): Match[] {
-  return event.rounds.flatMap((r) => r.matches ?? []).filter((m) => m.status !== "completed");
-}
-
-/** The current user's own in-flight match, if they're in one right now. */
-export function findMyActiveMatch(event: EventDetail, meId: string): Match | null {
-  return (
-    flattenActiveMatches(event).find((m) =>
-      [m.team1P1, m.team1P2, m.team2P1, m.team2P2].includes(meId),
-    ) ?? null
-  );
-}
+import type { EventDetail, Match, Round } from "./types";
 
 /** All matches (any status) across the whole event, flattened. */
 function allMatches(event: EventDetail): Match[] {
   return event.rounds.flatMap((r) => r.matches ?? []);
 }
 
-/**
- * Every match in the event, active AND completed - for the "all courts"
- * view, so a court's final score stays visible once it wraps up instead of
- * disappearing the instant it completes. Sorted live/pending courts first
- * (most actionable), then completed ones most-recent-round-first.
- */
-export function flattenAllMatchesForDisplay(event: EventDetail): Match[] {
-  const roundNumberByMatchId = new Map<string, number>();
-  for (const r of event.rounds) {
-    for (const m of r.matches ?? []) roundNumberByMatchId.set(m.id, r.number);
-  }
-  return allMatches(event).sort((a, b) => {
-    if (a.status === "completed" && b.status !== "completed") return 1;
-    if (a.status !== "completed" && b.status === "completed") return -1;
-    return (roundNumberByMatchId.get(b.id) ?? 0) - (roundNumberByMatchId.get(a.id) ?? 0);
-  });
+export function getRound(event: EventDetail, number: number): Round | undefined {
+  return event.rounds.find((r) => r.number === number);
 }
 
-/**
- * How many matches (any status) each participant has been assigned to,
- * event-wide - mirrors the backend's loadMatchesPlayedCount exactly (see
- * server/internal/handlers/rotation.go), computed client-side from the same
- * data GetEvent already returns, so no extra endpoint is needed.
- */
+/** The matches on every court for whichever round is currently live -
+ * this is "the board": the whole schedule is precomputed, so this is just
+ * a lookup, not something that gets formed on the fly. */
+export function currentRoundMatches(event: EventDetail): Match[] {
+  return getRound(event, event.currentRound)?.matches ?? [];
+}
+
+/** Every match a given player is scheduled for, across the whole event,
+ * in round order - the player's full precomputed itinerary. */
+export function myMatchesInOrder(event: EventDetail, meId: string): { round: number; match: Match }[] {
+  const out: { round: number; match: Match }[] = [];
+  for (const r of event.rounds) {
+    const m = (r.matches ?? []).find((m) => [m.team1P1, m.team1P2, m.team2P1, m.team2P2].includes(meId));
+    if (m) out.push({ round: r.number, match: m });
+  }
+  return out.sort((a, b) => a.round - b.round);
+}
+
+/** My match for the round that's currently live, if I'm playing this round
+ * (null if I have a bye this round, or the event hasn't started). */
+export function myCurrentMatch(event: EventDetail, meId: string): Match | null {
+  return currentRoundMatches(event).find((m) => [m.team1P1, m.team1P2, m.team2P1, m.team2P2].includes(meId)) ?? null;
+}
+
+/** My next scheduled match after the one at `afterRound` (defaults to the
+ * live round) - since everything's precomputed, this is known the instant
+ * I finish my current match, even before the event's official current round
+ * has advanced (other courts may still be playing out the live round). */
+export function myNextMatch(
+  event: EventDetail,
+  meId: string,
+  afterRound: number = event.currentRound,
+): { round: number; match: Match } | null {
+  return myMatchesInOrder(event, meId).find((entry) => entry.round > afterRound) ?? null;
+}
+
+/** Whether I'm sitting out the currently live round (a scheduled bye, not
+ * "not a participant" - use myCurrentMatch === null && isParticipant). */
+export function isMyByeThisRound(event: EventDetail, meId: string): boolean {
+  return event.participants.some((p) => p.userId === meId) && myCurrentMatch(event, meId) === null;
+}
+
+/** Every match in the event, in round order - for the recap view, once the
+ * whole precomputed schedule has played out. */
+export function flattenAllMatchesForDisplay(event: EventDetail): Match[] {
+  return [...event.rounds]
+    .sort((a, b) => a.number - b.number)
+    .flatMap((r) => r.matches ?? []);
+}
+
+/** How many matches (any status) each participant has been assigned to,
+ * event-wide - used for the leaderboard/recap, not live scheduling (the
+ * schedule itself no longer depends on this at runtime, only at StartEvent
+ * precompute time server-side). */
 export function computeMatchesPlayed(event: EventDetail): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const m of allMatches(event)) {
@@ -55,56 +71,4 @@ export function computeMatchesPlayed(event: EventDetail): Record<string, number>
     }
   }
   return counts;
-}
-
-/** Participant IDs not currently in a pending/in_progress match - mirrors
- * the backend's loadFreePlayerIDs. */
-export function computeFreeParticipantIds(event: EventDetail): string[] {
-  const occupied = new Set<string>();
-  for (const m of flattenActiveMatches(event)) {
-    occupied.add(m.team1P1);
-    occupied.add(m.team1P2);
-    occupied.add(m.team2P1);
-    occupied.add(m.team2P2);
-  }
-  return event.participants.map((p) => p.userId).filter((id) => !occupied.has(id));
-}
-
-export interface QueueInfo {
-  /** Free players who've played strictly fewer matches than me - the
-   * tiered-fairness algorithm always considers all of them before it will
-   * ever consider me (see tieredCandidatePools server-side). */
-  playersAhead: number;
-  /** Free players tied with me at the same matches-played count (including
-   * myself) - once this reaches 4, my tier becomes eligible to form a match
-   * (assuming a valid non-repeat pairing exists among them). */
-  tiedWithMe: number;
-  myMatchesPlayed: number;
-  freeCount: number;
-  participantCount: number;
-}
-
-/** null if I'm not currently free (e.g. I'm mid-match, or not a participant). */
-export function computeQueueInfo(event: EventDetail, meId: string): QueueInfo | null {
-  const free = computeFreeParticipantIds(event);
-  if (!free.includes(meId)) return null;
-
-  const played = computeMatchesPlayed(event);
-  const myMatchesPlayed = played[meId] ?? 0;
-
-  let playersAhead = 0;
-  let tiedWithMe = 0;
-  for (const id of free) {
-    const p = played[id] ?? 0;
-    if (p < myMatchesPlayed) playersAhead++;
-    else if (p === myMatchesPlayed) tiedWithMe++;
-  }
-
-  return {
-    playersAhead,
-    tiedWithMe,
-    myMatchesPlayed,
-    freeCount: free.length,
-    participantCount: event.participants.length,
-  };
 }

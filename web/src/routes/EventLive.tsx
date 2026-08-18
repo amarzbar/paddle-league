@@ -1,20 +1,36 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { BackButton, Chip, PrimaryButton, SecondaryButton, Toast } from "../components/ui";
+import { BackButton, Chip, PrimaryButton, SecondaryButton, GhostButton, Toast, Modal } from "../components/ui";
 import { CourtScoreCard } from "../components/CourtScoreCard";
 import { usePolling } from "../lib/usePolling";
 import { api, ApiError } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
-import { computeQueueInfo, findMyActiveMatch, flattenAllMatchesForDisplay } from "../lib/matchHelpers";
-import type { EventDetail, ScoreResponse } from "../lib/types";
+import { currentRoundMatches, myCurrentMatch, myNextMatch, isMyByeThisRound } from "../lib/matchHelpers";
+import type { EventDetail, Match, ScoreResponse } from "../lib/types";
+
+function playerNamesOnMatch(match: Match, meId: string) {
+  const onTeam1 = [match.team1P1, match.team1P2].includes(meId);
+  const partner = onTeam1
+    ? match.team1P1 === meId
+      ? match.team1P2User
+      : match.team1P1User
+    : match.team2P1 === meId
+      ? match.team2P2User
+      : match.team2P1User;
+  const opponents = onTeam1
+    ? `${match.team2P1User?.displayName ?? "?"} & ${match.team2P2User?.displayName ?? "?"}`
+    : `${match.team1P1User?.displayName ?? "?"} & ${match.team1P2User?.displayName ?? "?"}`;
+  return { partnerName: partner?.displayName ?? "?", opponents };
+}
 
 export default function EventLive() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user: me } = useAuth();
   const [toast, setToast] = useState<string | null>(null);
-  const [checking, setChecking] = useState(false);
   const [ending, setEnding] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [view, setView] = useState<"mine" | "all">("mine");
   const [justAssigned, setJustAssigned] = useState(false);
   const prevMatchId = useRef<string | null>(null);
@@ -25,15 +41,13 @@ export default function EventLive() {
     4000,
   );
 
-  const myMatch = event && me ? findMyActiveMatch(event, me.id) : null;
-  const queueInfo = event && me && !myMatch ? computeQueueInfo(event, me.id) : null;
+  const myMatch = event && me ? myCurrentMatch(event, me.id) : null;
+  const bye = event && me ? isMyByeThisRound(event, me.id) : false;
+  const upNext = event && me ? myNextMatch(event, me.id) : null;
 
-  // Keep the view in sync with whether I currently have a match: the moment
-  // mine ends, switch to "All courts" so I can see how everyone else's game
-  // is going (with final scores staying visible - see flattenAllMatchesForDisplay)
-  // instead of a bare waiting screen. The moment I get re-assigned, switch
-  // back to my own court automatically. Manual taps on the toggle still work
-  // in between.
+  // "Your match has started" - fires the moment I'm assigned into a live
+  // match (either the event just started, or the round advanced onto my
+  // scheduled game).
   useEffect(() => {
     const currentId = myMatch?.id ?? null;
     if (currentId !== prevMatchId.current) {
@@ -50,10 +64,9 @@ export default function EventLive() {
     }
   }, [myMatch?.id]);
 
-  // The event can now auto-complete server-side (everyone's played everyone
-  // - see formMatchesFromFreePlayers) without anyone tapping "End event" -
-  // catch that on the next poll and move to the recap the same way the host
-  // action already does.
+  // The event auto-completes server-side once the last round's matches are
+  // all done - catch that on the next poll and move to the recap the same
+  // way the host's "End event" action already does.
   useEffect(() => {
     if (event?.status === "completed") {
       navigate(`/events/${event.id}/recap`, { replace: true });
@@ -101,9 +114,11 @@ export default function EventLive() {
           })),
         };
       });
-      // A completed match may have freed up enough players for a new game to
-      // form server-side - refetch promptly instead of waiting for the next
-      // 4s poll tick, so the pending-vs-active transition feels responsive.
+      // The full schedule is precomputed, so my next matchup is already known
+      // the instant my match ends - no toast needed, the persistent "Up
+      // next" card above the courts (driven by upNext/myNextMatch) already
+      // reflects it on the next render, no waiting for the round counter to
+      // advance (other courts may still be playing).
       if (result.status === "completed") refetch();
     } catch (err) {
       showToast(err instanceof ApiError ? err.message : "Couldn't save that point - refreshing.");
@@ -111,27 +126,39 @@ export default function EventLive() {
     }
   };
 
-  const handleCheckForNewGames = async () => {
-    setChecking(true);
+  const handleTimeout = async (matchId: string) => {
     try {
-      await api.post(`/api/events/${event.id}/rounds`);
+      const result = await api.post<ScoreResponse>(`/api/matches/${matchId}/timeout`);
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          rounds: prev.rounds.map((r) => ({
+            ...r,
+            matches: r.matches?.map((m) =>
+              m.id !== matchId
+                ? m
+                : { ...m, team1Score: result.team1Score, team2Score: result.team2Score, status: result.status, winner: result.winner },
+            ),
+          })),
+        };
+      });
       refetch();
     } catch (err) {
-      // A 409 here just means "nothing to form right now" - not a real error.
+      // A 409 just means someone else's clock (or the server's own safety
+      // net on the next score attempt) already closed this match out -
+      // harmless, just resync.
       if (!(err instanceof ApiError && err.status === 409)) {
-        showToast(err instanceof ApiError ? err.message : "Couldn't check for new games.");
-      } else {
-        showToast("No new games to form right now.");
+        showToast(err instanceof ApiError ? err.message : "Couldn't close out the match - refreshing.");
       }
-    } finally {
-      setChecking(false);
+      refetch();
     }
   };
 
   const handleEndEvent = async () => {
     setEnding(true);
     try {
-      await api.post(`/api/events/${event.id}/complete`);
+      await api.post(`/api/events/${event.id}/stop`);
       navigate(`/events/${event.id}/recap`);
     } catch (err) {
       showToast(err instanceof ApiError ? err.message : "Couldn't end the event.");
@@ -139,8 +166,20 @@ export default function EventLive() {
     }
   };
 
-  const allCourtsMatches = flattenAllMatchesForDisplay(event);
-  const visibleMatches = view === "mine" ? (myMatch ? [myMatch] : []) : allCourtsMatches;
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await api.del(`/api/events/${event.id}`);
+      navigate("/");
+    } catch (err) {
+      showToast(err instanceof ApiError ? err.message : "Couldn't delete the event.");
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  };
+
+  const boardMatches = currentRoundMatches(event);
+  const visibleMatches = view === "mine" ? (myMatch ? [myMatch] : []) : boardMatches;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
@@ -162,9 +201,12 @@ export default function EventLive() {
             Leaderboard
           </button>
         </div>
-        <h1 style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 22, color: "#FBFAF7", marginBottom: 10 }}>
+        <h1 style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 22, color: "#FBFAF7", marginBottom: 4 }}>
           {event.name}
         </h1>
+        <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 12, color: "rgba(251,250,247,0.55)", marginBottom: 10 }}>
+          Round {event.currentRound} of {event.totalRounds}
+        </p>
 
         <div style={{ display: "flex", gap: 8 }}>
           <Chip label="My court" active={view === "mine"} onClick={() => setView("mine")} />
@@ -173,7 +215,7 @@ export default function EventLive() {
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 20px 160px", display: "flex", flexDirection: "column", gap: 14 }}>
-        {!myMatch && queueInfo && (
+        {view === "mine" && bye && (
           <div
             className="animate-fade-in"
             style={{
@@ -183,25 +225,49 @@ export default function EventLive() {
               border: "1px solid rgba(232,230,224,0.7)",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-              <span className="animate-spin-slow" style={{ fontSize: 18, display: "inline-block" }}>
-                🎾
-              </span>
-              <p style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 600, fontSize: 14, color: "#14304B" }}>
-                Waiting for your next game
-              </p>
-            </div>
-            <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 13, color: "#6B6B63" }}>
-              {queueInfo.playersAhead > 0
-                ? `${queueInfo.playersAhead} player${queueInfo.playersAhead === 1 ? "" : "s"} need${queueInfo.playersAhead === 1 ? "s" : ""} to play before you're back in the pool — everyone plays evenly before anyone repeats.`
-                : queueInfo.tiedWithMe >= 4
-                  ? "You're up — waiting on a fresh matchup, since everyone free right now has already partnered with each other."
-                  : `You're first in line — waiting on ${Math.max(0, 4 - queueInfo.tiedWithMe)} more free player${4 - queueInfo.tiedWithMe === 1 ? "" : "s"}.`}
-            </p>
-            <p style={{ fontFamily: "Space Mono, monospace", fontSize: 11, color: "#A8A8A0", marginTop: 8 }}>
-              {queueInfo.freeCount} of {queueInfo.participantCount} players free · you've played {queueInfo.myMatchesPlayed}
+            <p style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 600, fontSize: 14, color: "#14304B" }}>
+              You're sitting out round {event.currentRound}
             </p>
           </div>
+        )}
+
+        {/* Persistent "up next" strip - stays visible above the courts the
+            whole time a next matchup is known (mid-match, on a bye, or right
+            after finishing), not a toast that disappears - the schedule is
+            precomputed so this is always an exact answer, never a guess. */}
+        {view === "mine" && upNext && (
+          <div
+            style={{
+              backgroundColor: "#14304B",
+              borderRadius: 16,
+              padding: "14px 18px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+            }}
+          >
+            <div>
+              <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: "#C4F135", marginBottom: 3 }}>
+                Up next - round {upNext.round}
+              </p>
+              <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 13, color: "rgba(251,250,247,0.85)" }}>
+                {(() => {
+                  const { partnerName, opponents } = playerNamesOnMatch(upNext.match, me.id);
+                  return `You + ${partnerName} vs ${opponents}`;
+                })()}
+              </p>
+            </div>
+            <span style={{ fontFamily: "Space Mono, monospace", fontWeight: 700, fontSize: 13, color: "#FBFAF7", flexShrink: 0 }}>
+              {upNext.match.courtLabel}
+            </span>
+          </div>
+        )}
+
+        {view === "mine" && bye && !upNext && (
+          <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 13, color: "#6B6B63" }}>
+            No more scheduled matches for you this event.
+          </p>
         )}
 
         {view === "mine" && myMatch && justAssigned && (
@@ -215,14 +281,14 @@ export default function EventLive() {
             }}
           >
             <p style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 17, color: "#C4F135" }}>
-              You're in! {myMatch.courtLabel}
+              Your match has started - {myMatch.courtLabel}
             </p>
           </div>
         )}
 
-        {view === "all" && allCourtsMatches.length === 0 && (
+        {view === "all" && boardMatches.length === 0 && (
           <p style={{ textAlign: "center", fontFamily: "Hanken Grotesk, sans-serif", fontSize: 13, color: "#6B6B63", marginTop: 20 }}>
-            No games yet.
+            No games this round.
           </p>
         )}
 
@@ -233,6 +299,8 @@ export default function EventLive() {
             meId={me.id}
             isHost={isHost}
             onScore={(team, delta) => handleScore(match.id, team, delta)}
+            timeLimitSeconds={event.timeLimitSeconds}
+            onTimeout={() => handleTimeout(match.id)}
           />
         ))}
       </div>
@@ -252,16 +320,28 @@ export default function EventLive() {
             gap: 8,
           }}
         >
-          <SecondaryButton onClick={handleCheckForNewGames} disabled={checking}>
-            {checking ? "Checking…" : "Check for new games"}
-          </SecondaryButton>
           <PrimaryButton onClick={handleEndEvent} disabled={ending} style={{ backgroundColor: "#FF6F59" }}>
-            {ending ? "Ending…" : "End event"}
+            {ending ? "Ending…" : "Stop event"}
           </PrimaryButton>
+          <GhostButton onClick={() => setConfirmDelete(true)} style={{ color: "#FF6F59" }}>
+            Delete event
+          </GhostButton>
         </div>
       )}
 
       {toast && <Toast message={toast} />}
+
+      <Modal open={confirmDelete} onClose={() => setConfirmDelete(false)} title="Delete this event?">
+        <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 14, color: "#6B6B63", marginBottom: 20 }}>
+          This permanently removes the event, its schedule, and every score for everyone. This can't be undone.
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <PrimaryButton onClick={handleDelete} disabled={deleting} style={{ backgroundColor: "#FF6F59" }}>
+            {deleting ? "Deleting…" : "Delete event"}
+          </PrimaryButton>
+          <SecondaryButton onClick={() => setConfirmDelete(false)}>Cancel</SecondaryButton>
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { BackButton, PrimaryButton, HostCard, Toast } from "../components/ui";
+import { BackButton, PrimaryButton, GhostButton, HostCard, Toast, Modal } from "../components/ui";
 import { PlayerRow } from "../components/PlayerRow";
 import { usePolling } from "../lib/usePolling";
 import { api, ApiError } from "../lib/api";
@@ -14,6 +14,8 @@ export default function EventLobby() {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const { data: event, error: fetchError } = usePolling<EventDetail>(
     () => api.get<EventDetail>(`/api/events/${id}`),
@@ -44,14 +46,26 @@ export default function EventLobby() {
     setError(null);
     setStarting(true);
     try {
-      await api.post(`/api/events/${event.id}/rounds`);
-      // formMatchesFromFreePlayers already flips the event to "active" -
-      // land straight in the live view (my-court-first, continuous rotation
-      // takes it from here; there's no per-round reveal to navigate through).
+      await api.post(`/api/events/${event.id}/start`);
+      // StartEvent precomputes and writes the whole schedule, then flips the
+      // event to "active" - land straight in the live view.
       navigate(`/events/${event.id}/live`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't start the games.");
       setStarting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setError(null);
+    setDeleting(true);
+    try {
+      await api.del(`/api/events/${event.id}`);
+      navigate("/");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't delete the event.");
+      setDeleting(false);
+      setConfirmDelete(false);
     }
   };
 
@@ -73,7 +87,9 @@ export default function EventLobby() {
           {event.name}
         </h1>
         <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 13, color: "rgba(251,250,247,0.6)", marginBottom: 16 }}>
-          Play to {event.pointsToWin}, win by {event.winBy}, cap {event.maxPoints}
+          Race to {event.pointsToWin} combined
+          {event.timeLimitSeconds > 0 ? ` or ${Math.round(event.timeLimitSeconds / 60)} min` : ""} · Americano,{" "}
+          {event.courtCount} courts, {event.totalRounds} rounds{event.isPublic ? " · Public" : ""}
         </p>
 
         <button
@@ -141,9 +157,14 @@ export default function EventLobby() {
         }}
       >
         {isHost ? (
-          <PrimaryButton onClick={handleStart} disabled={!canStart || starting}>
-            {starting ? "Shuffling teams…" : "Start the games"}
-          </PrimaryButton>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <PrimaryButton onClick={handleStart} disabled={!canStart || starting}>
+              {starting ? "Building the schedule…" : "Start the games"}
+            </PrimaryButton>
+            <GhostButton onClick={() => setConfirmDelete(true)} style={{ color: "#FF6F59" }}>
+              Delete event
+            </GhostButton>
+          </div>
         ) : (
           <div
             style={{
@@ -159,6 +180,18 @@ export default function EventLobby() {
         )}
         {error && <Toast message={error} />}
       </div>
+
+      <Modal open={confirmDelete} onClose={() => setConfirmDelete(false)} title="Delete this event?">
+        <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 14, color: "#6B6B63", marginBottom: 20 }}>
+          This permanently removes the event and its schedule for everyone. This can't be undone.
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <PrimaryButton onClick={handleDelete} disabled={deleting} style={{ backgroundColor: "#FF6F59" }}>
+            {deleting ? "Deleting…" : "Delete event"}
+          </PrimaryButton>
+          <GhostButton onClick={() => setConfirmDelete(false)}>Cancel</GhostButton>
+        </div>
+      </Modal>
     </div>
   );
 }

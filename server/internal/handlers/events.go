@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"paddle-league/server/internal/middleware"
 	"paddle-league/server/internal/models"
+	"paddle-league/server/internal/scheduling"
 )
 
 const codeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // no confusing chars
@@ -25,11 +27,14 @@ func genJoinCode() string {
 	return string(b)
 }
 
+const fixedCourtCount = 4 // Americano nights in this app always run on 4 courts
+
 type createEventReq struct {
-	Name        string `json:"name"`
-	PointsToWin int    `json:"pointsToWin"`
-	WinBy       int    `json:"winBy"`
-	MaxPoints   int    `json:"maxPoints"`
+	Name             string `json:"name"`
+	PointsToWin      int    `json:"pointsToWin"` // target COMBINED total for a match, Americano-style
+	TimeLimitSeconds int    `json:"timeLimitSeconds"`
+	IsPublic         bool   `json:"isPublic"`
+	TotalRounds      int    `json:"totalRounds"`
 }
 
 func (a *API) CreateEvent(w http.ResponseWriter, r *http.Request) {
@@ -44,13 +49,13 @@ func (a *API) CreateEvent(w http.ResponseWriter, r *http.Request) {
 		req.Name = "Paddle Night"
 	}
 	if req.PointsToWin <= 0 {
-		req.PointsToWin = 11
+		req.PointsToWin = 21
 	}
-	if req.WinBy <= 0 {
-		req.WinBy = 2
+	if req.TimeLimitSeconds < 0 {
+		req.TimeLimitSeconds = 0
 	}
-	if req.MaxPoints <= 0 || req.MaxPoints < req.PointsToWin {
-		req.MaxPoints = req.PointsToWin + 4
+	if req.TotalRounds <= 0 {
+		req.TotalRounds = 8
 	}
 
 	var ev models.Event
@@ -58,11 +63,12 @@ func (a *API) CreateEvent(w http.ResponseWriter, r *http.Request) {
 	for attempt := 0; attempt < 5; attempt++ {
 		code := genJoinCode()
 		err = a.DB.QueryRow(r.Context(), `
-			INSERT INTO events (host_id, name, join_code, points_to_win, win_by, max_points)
-			VALUES ($1, $2, $3, $4, $5, $6)
-			RETURNING id, host_id, name, join_code, status, points_to_win, win_by, max_points, current_round, created_at, started_at, completed_at
-		`, userID, req.Name, code, req.PointsToWin, req.WinBy, req.MaxPoints).Scan(
-			&ev.ID, &ev.HostID, &ev.Name, &ev.JoinCode, &ev.Status, &ev.PointsToWin, &ev.WinBy, &ev.MaxPoints, &ev.CurrentRound, &ev.CreatedAt, &ev.StartedAt, &ev.CompletedAt,
+			INSERT INTO events (host_id, name, join_code, points_to_win, time_limit_seconds, is_public, court_count, total_rounds)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			RETURNING id, host_id, name, join_code, status, points_to_win, time_limit_seconds, current_round, is_public, court_count, total_rounds, created_at, started_at, completed_at
+		`, userID, req.Name, code, req.PointsToWin, req.TimeLimitSeconds, req.IsPublic, fixedCourtCount, req.TotalRounds).Scan(
+			&ev.ID, &ev.HostID, &ev.Name, &ev.JoinCode, &ev.Status, &ev.PointsToWin, &ev.TimeLimitSeconds, &ev.CurrentRound,
+			&ev.IsPublic, &ev.CourtCount, &ev.TotalRounds, &ev.CreatedAt, &ev.StartedAt, &ev.CompletedAt,
 		)
 		if err == nil {
 			break
@@ -86,10 +92,17 @@ func (a *API) CreateEvent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, ev)
 }
 
+const eventColumns = `e.id, e.host_id, e.name, e.join_code, e.status, e.points_to_win, e.time_limit_seconds, e.current_round, e.is_public, e.court_count, e.total_rounds, e.created_at, e.started_at, e.completed_at`
+
+func scanEvent(row interface{ Scan(...any) error }, ev *models.Event) error {
+	return row.Scan(&ev.ID, &ev.HostID, &ev.Name, &ev.JoinCode, &ev.Status, &ev.PointsToWin, &ev.TimeLimitSeconds, &ev.CurrentRound,
+		&ev.IsPublic, &ev.CourtCount, &ev.TotalRounds, &ev.CreatedAt, &ev.StartedAt, &ev.CompletedAt)
+}
+
 func (a *API) ListMyEvents(w http.ResponseWriter, r *http.Request) {
 	userID, _ := middleware.UserID(r.Context())
 	rows, err := a.DB.Query(r.Context(), `
-		SELECT e.id, e.host_id, e.name, e.join_code, e.status, e.points_to_win, e.win_by, e.max_points, e.current_round, e.created_at, e.started_at, e.completed_at
+		SELECT `+eventColumns+`
 		FROM events e
 		JOIN event_participants p ON p.event_id = e.id
 		WHERE p.user_id = $1
@@ -104,7 +117,36 @@ func (a *API) ListMyEvents(w http.ResponseWriter, r *http.Request) {
 	events := []models.Event{}
 	for rows.Next() {
 		var ev models.Event
-		if err := rows.Scan(&ev.ID, &ev.HostID, &ev.Name, &ev.JoinCode, &ev.Status, &ev.PointsToWin, &ev.WinBy, &ev.MaxPoints, &ev.CurrentRound, &ev.CreatedAt, &ev.StartedAt, &ev.CompletedAt); err != nil {
+		if err := scanEvent(rows, &ev); err != nil {
+			writeErr(w, http.StatusInternalServerError, "scan error")
+			return
+		}
+		events = append(events, ev)
+	}
+	writeJSON(w, http.StatusOK, events)
+}
+
+// ListPublicEvents powers the main page's "available events" section: any
+// public event still in lobby or active (not yet completed), regardless of
+// whether the requesting user has joined it. Joining one of these never
+// requires a join code - see JoinPublicEvent.
+func (a *API) ListPublicEvents(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.DB.Query(r.Context(), `
+		SELECT `+eventColumns+`
+		FROM events e
+		WHERE e.is_public AND e.status IN ('lobby', 'active')
+		ORDER BY e.created_at DESC
+	`)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not list public events")
+		return
+	}
+	defer rows.Close()
+
+	events := []models.Event{}
+	for rows.Next() {
+		var ev models.Event
+		if err := scanEvent(rows, &ev); err != nil {
 			writeErr(w, http.StatusInternalServerError, "scan error")
 			return
 		}
@@ -145,12 +187,42 @@ func (a *API) JoinEvent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"eventId": eventID})
 }
 
+// JoinPublicEvent joins the caller to a public event by ID - no join code
+// needed, since the whole point of marking an event public is that it's
+// browsable and joinable straight from the main page's listing.
+func (a *API) JoinPublicEvent(w http.ResponseWriter, r *http.Request) {
+	userID, _ := middleware.UserID(r.Context())
+	id := chi.URLParam(r, "id")
+
+	var isPublic bool
+	err := a.DB.QueryRow(r.Context(), `SELECT is_public FROM events WHERE id = $1`, id).Scan(&isPublic)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "event not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not load event")
+		return
+	}
+	if !isPublic {
+		writeErr(w, http.StatusForbidden, "this event is private - join with its code instead")
+		return
+	}
+
+	_, err = a.DB.Exec(r.Context(), `
+		INSERT INTO event_participants (event_id, user_id) VALUES ($1, $2)
+		ON CONFLICT DO NOTHING
+	`, id, userID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not join event")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"eventId": id})
+}
+
 func (a *API) getEventOr404(ctx context.Context, w http.ResponseWriter, id string) (*models.Event, bool) {
 	var ev models.Event
-	err := a.DB.QueryRow(ctx, `
-		SELECT id, host_id, name, join_code, status, points_to_win, win_by, max_points, current_round, created_at, started_at, completed_at
-		FROM events WHERE id = $1
-	`, id).Scan(&ev.ID, &ev.HostID, &ev.Name, &ev.JoinCode, &ev.Status, &ev.PointsToWin, &ev.WinBy, &ev.MaxPoints, &ev.CurrentRound, &ev.CreatedAt, &ev.StartedAt, &ev.CompletedAt)
+	err := scanEvent(a.DB.QueryRow(ctx, `SELECT `+eventColumns+` FROM events e WHERE e.id = $1`, id), &ev)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "event not found")
 		return nil, false
@@ -189,11 +261,14 @@ func (a *API) GetEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	isHost := ev.HostID == userID
+	log.Printf("GetEvent event=%s hostID=%s requestUserID=%q isHost=%v", id, ev.HostID, userID, isHost)
+
 	writeJSON(w, http.StatusOK, eventDetail{
 		Event:        *ev,
 		Participants: participants,
 		Rounds:       rounds,
-		IsHost:       ev.HostID == userID,
+		IsHost:       isHost,
 	})
 }
 
@@ -297,15 +372,14 @@ func (a *API) loadMatchesForRound(ctx context.Context, roundID string) ([]models
 	return out, nil
 }
 
-// NextRound attempts to form new matches right now from whichever
-// participants are currently free (not already in a pending/in_progress
-// match) - see formMatchesFromFreePlayers in rotation.go. Host-only. This is
-// both the initial kickoff (event still in the lobby, everyone is free) and
-// a manual "check for new games" fallback the host can call any time -
-// under continuous rotation, new matches otherwise form automatically as
-// courts finish (see Score in matches.go), so this endpoint is no longer
-// the only way rounds advance.
-func (a *API) NextRound(w http.ResponseWriter, r *http.Request) {
+// StartEvent precomputes the entire Americano schedule - every round, every
+// match, every court assignment - in one shot and writes it all to the DB
+// before anything goes live. Host-only, and only valid while the event is
+// still in the lobby (this is a one-time kickoff, not a per-round nudge -
+// see scheduling.Plan for why precomputing everything up front is the
+// point: a player's "next matchup" after finishing a match is just their
+// assignment in the following round, already sitting in the DB).
+func (a *API) StartEvent(w http.ResponseWriter, r *http.Request) {
 	userID, _ := middleware.UserID(r.Context())
 	id := chi.URLParam(r, "id")
 	ev, ok := a.getEventOr404(r.Context(), w, id)
@@ -316,39 +390,153 @@ func (a *API) NextRound(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "only the host can do this")
 		return
 	}
-
-	participants, err := a.loadParticipants(r.Context(), id)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "could not load participants")
-		return
-	}
-	if len(participants) < 4 {
-		writeErr(w, http.StatusBadRequest, "need at least 4 players to start")
+	if ev.Status != "lobby" {
+		writeErr(w, http.StatusConflict, "event has already started")
 		return
 	}
 
-	result, err := a.formMatchesFromFreePlayers(r.Context(), id)
+	roundCount, matchCount, err := a.buildAndPersistSchedule(r.Context(), id, ev.CourtCount, ev.TotalRounds)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "could not form matches")
-		return
-	}
-	if result.EventCompleted {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"created":        0,
-			"eventCompleted": true,
-		})
-		return
-	}
-	if result.Created == 0 {
-		writeErr(w, http.StatusConflict, "no new matches to form right now — either not enough players are free, or everyone free has already partnered with everyone else")
+		writeErr(w, http.StatusInternalServerError, "could not build schedule: "+err.Error())
 		return
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"roundNumber": result.RoundNumber,
-		"created":     result.Created,
-		"byes":        result.Byes,
+		"totalRounds":  roundCount,
+		"totalMatches": matchCount,
 	})
+}
+
+// buildAndPersistSchedule loads an event's participants, precomputes the
+// full Americano schedule (scheduling.Plan), and writes every round/match to
+// the DB plus flips the event to active - all in one transaction. Shared by
+// the StartEvent HTTP handler and the formmatches ops CLI (cmd/formmatches),
+// which triggers the identical logic directly against the DB for
+// debugging/demo purposes, no HTTP request or session involved.
+func (a *API) buildAndPersistSchedule(ctx context.Context, eventID string, courtCount, totalRounds int) (roundCount, matchCount int, err error) {
+	participants, err := a.loadParticipants(ctx, eventID)
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(participants) < 4 {
+		return 0, 0, errors.New("need at least 4 players to start")
+	}
+
+	playerIDs := make([]string, len(participants))
+	for i, p := range participants {
+		playerIDs[i] = p.UserID
+	}
+
+	rounds, err := scheduling.Plan(playerIDs, courtCount, totalRounds, nil)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	tx, err := a.DB.Begin(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer tx.Rollback(ctx)
+
+	for _, rnd := range rounds {
+		var roundID string
+		if err := tx.QueryRow(ctx, `INSERT INTO rounds (event_id, number) VALUES ($1, $2) RETURNING id`, eventID, rnd.Number).Scan(&roundID); err != nil {
+			return 0, 0, err
+		}
+		for i, pair := range rnd.Pairs {
+			court := "Court " + itoa(i+1)
+			_, err := tx.Exec(ctx, `
+				INSERT INTO matches (round_id, event_id, court_label, team1_p1, team1_p2, team2_p1, team2_p2)
+				VALUES ($1, $2, $3, $4, $5, $6, $7)
+			`, roundID, eventID, court, pair[0][0], pair[0][1], pair[1][0], pair[1][1])
+			if err != nil {
+				return 0, 0, err
+			}
+			matchCount++
+		}
+	}
+
+	if _, err = tx.Exec(ctx, `UPDATE events SET status = 'active', current_round = 1, started_at = now() WHERE id = $1`, eventID); err != nil {
+		return 0, 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, 0, err
+	}
+	return len(rounds), matchCount, nil
+}
+
+// advanceRoundIfComplete moves an active event's current_round forward once
+// every match in the current round is completed, and marks the whole event
+// completed once that was the last round. The schedule itself never changes
+// here - it was fully precomputed at StartEvent time - this only tracks
+// which precomputed round is "live" for the board/next-matchup views.
+func (a *API) advanceRoundIfComplete(ctx context.Context, eventID string) error {
+	var status string
+	var current int
+	if err := a.DB.QueryRow(ctx, `SELECT status, current_round FROM events WHERE id = $1`, eventID).Scan(&status, &current); err != nil {
+		return err
+	}
+	if status != "active" {
+		return nil
+	}
+
+	var pendingInCurrent int
+	err := a.DB.QueryRow(ctx, `
+		SELECT count(*) FROM matches m JOIN rounds rnd ON rnd.id = m.round_id
+		WHERE rnd.event_id = $1 AND rnd.number = $2 AND m.status != 'completed'
+	`, eventID, current).Scan(&pendingInCurrent)
+	if err != nil {
+		return err
+	}
+	if pendingInCurrent > 0 {
+		return nil // current round still has live matches
+	}
+
+	var nextExists bool
+	err = a.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rounds WHERE event_id = $1 AND number = $2)`, eventID, current+1).Scan(&nextExists)
+	if err != nil {
+		return err
+	}
+	if nextExists {
+		_, err = a.DB.Exec(ctx, `UPDATE events SET current_round = $1 WHERE id = $2`, current+1, eventID)
+		return err
+	}
+	_, err = a.DB.Exec(ctx, `UPDATE events SET status = 'completed', completed_at = now() WHERE id = $1`, eventID)
+	return err
+}
+
+// AdminFormMatches is the ops-CLI entry point (cmd/formmatches) for
+// precomputing and activating an event's schedule directly against the DB,
+// bypassing HTTP/auth - useful for demos/debugging. It needs the event's own
+// court/round settings, unlike StartEvent's HTTP handler which already has
+// them from getEventOr404.
+func (a *API) AdminFormMatches(ctx context.Context, eventID string) (matchCount int, err error) {
+	var courtCount, totalRounds int
+	if err := a.DB.QueryRow(ctx, `SELECT court_count, total_rounds FROM events WHERE id = $1`, eventID).Scan(&courtCount, &totalRounds); err != nil {
+		return 0, err
+	}
+	_, matchCount, err = a.buildAndPersistSchedule(ctx, eventID, courtCount, totalRounds)
+	return matchCount, err
+}
+
+// DeleteEvent permanently removes an event and everything under it
+// (participants, rounds, matches all cascade via FK). Host-only.
+func (a *API) DeleteEvent(w http.ResponseWriter, r *http.Request) {
+	userID, _ := middleware.UserID(r.Context())
+	id := chi.URLParam(r, "id")
+	ev, ok := a.getEventOr404(r.Context(), w, id)
+	if !ok {
+		return
+	}
+	if ev.HostID != userID {
+		writeErr(w, http.StatusForbidden, "only the host can delete this event")
+		return
+	}
+	if _, err := a.DB.Exec(r.Context(), `DELETE FROM events WHERE id = $1`, id); err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not delete event")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func sortedKey(a, b string) string {

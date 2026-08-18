@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ScoreQuadrant } from "./ScoreQuadrant";
 import { StatusBadge, initialsFromName } from "./ui";
 import { MATCH_STATUS_CONFIG } from "../lib/statusConfig";
@@ -65,18 +65,70 @@ function TeamScoreRow({
   );
 }
 
+function formatCountdown(seconds: number): string {
+  const s = Math.max(0, Math.ceil(seconds));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${r.toString().padStart(2, "0")}`;
+}
+
+/**
+ * Ticks down the time remaining on a live match against its own startedAt +
+ * the event's timeLimitSeconds - purely a display computation plus a
+ * one-shot onTimeout callback, no server round-trip needed to know the
+ * remaining time (only to act on it hitting zero).
+ */
+function useMatchCountdown(match: Match, timeLimitSeconds: number | undefined, onTimeout: (() => void) | undefined) {
+  const [remaining, setRemaining] = useState<number | null>(null);
+  const firedRef = useRef(false);
+
+  useEffect(() => {
+    firedRef.current = false;
+  }, [match.id]);
+
+  useEffect(() => {
+    if (!timeLimitSeconds || timeLimitSeconds <= 0 || !match.startedAt || match.status === "completed") {
+      setRemaining(null);
+      return;
+    }
+    const startedAt = new Date(match.startedAt).getTime();
+    const tick = () => {
+      const left = timeLimitSeconds - (Date.now() - startedAt) / 1000;
+      setRemaining(left);
+      if (left <= 0 && !firedRef.current) {
+        firedRef.current = true;
+        onTimeout?.();
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [match.id, match.startedAt, match.status, timeLimitSeconds]);
+
+  return remaining;
+}
+
 export function CourtScoreCard({
   match,
   meId,
   isHost,
   onScore,
+  timeLimitSeconds,
+  onTimeout,
 }: {
   match: Match;
   meId: string;
   isHost: boolean;
   onScore: (team: 1 | 2, delta: 1 | -1) => void;
+  /** Event's time limit (seconds), if any - enables the live countdown. */
+  timeLimitSeconds?: number;
+  /** Fired once, client-side, the instant the countdown reaches zero - the
+   * caller is expected to call the /timeout endpoint here. */
+  onTimeout?: () => void;
 }) {
   const [flashTeam, setFlashTeam] = useState<1 | 2 | null>(null);
+  const remaining = useMatchCountdown(match, timeLimitSeconds, onTimeout);
 
   const team1Names = `${match.team1P1User?.displayName ?? "?"} & ${match.team1P2User?.displayName ?? "?"}`;
   const team2Names = `${match.team2P1User?.displayName ?? "?"} & ${match.team2P2User?.displayName ?? "?"}`;
@@ -93,6 +145,7 @@ export function CourtScoreCard({
   };
 
   const statusCfg = MATCH_STATUS_CONFIG[match.status];
+  const countdownLow = remaining !== null && remaining <= 30;
 
   return (
     <div
@@ -109,7 +162,21 @@ export function CourtScoreCard({
         <span style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 600, fontSize: 15, color: "#14304B" }}>
           {match.courtLabel}
         </span>
-        <StatusBadge label={statusCfg.label} color={statusCfg.color} bg={statusCfg.bg} size="xs" />
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {remaining !== null && (
+            <span
+              style={{
+                fontFamily: "Space Mono, monospace",
+                fontWeight: 700,
+                fontSize: 12,
+                color: countdownLow ? "#FF6F59" : "#6B6B63",
+              }}
+            >
+              ⏱ {formatCountdown(remaining)}
+            </span>
+          )}
+          <StatusBadge label={statusCfg.label} color={statusCfg.color} bg={statusCfg.bg} size="xs" />
+        </div>
       </div>
 
       <div style={{ display: "flex", justifyContent: "center", padding: "8px 0 18px" }}>
@@ -156,10 +223,10 @@ export function CourtScoreCard({
             fontFamily: "Hanken Grotesk, sans-serif",
             fontSize: 13,
             fontWeight: 600,
-            color: "var(--color-status-completed)",
+            color: match.winner === 0 ? "#6B6B63" : "var(--color-status-completed)",
           }}
         >
-          {match.winner === 1 ? "Team 1 won" : "Team 2 won"}
+          {match.winner === 0 ? "Draw" : match.winner === 1 ? "Team 1 won" : "Team 2 won"}
         </div>
       )}
     </div>

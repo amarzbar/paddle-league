@@ -10,9 +10,17 @@ import (
 
 // API bundles shared dependencies for all HTTP handlers.
 type API struct {
-	DB        *pgxpool.Pool
-	JWTSecret string
-	Prod      bool // controls cookie Secure flag
+	DB               *pgxpool.Pool
+	JWTSecret        string
+	Prod             bool // controls cookie Secure flag
+	CrossSiteCookies bool // see config.Config.CrossSiteCookies
+}
+
+func (a *API) cookieSameSite() http.SameSite {
+	if a.CrossSiteCookies {
+		return http.SameSiteNoneMode
+	}
+	return http.SameSiteLaxMode
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -35,8 +43,8 @@ func (a *API) setAuthCookie(w http.ResponseWriter, token string) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   a.Prod,
-		SameSite: http.SameSiteLaxMode,
+		Secure:   a.Prod || a.CrossSiteCookies, // SameSite=None requires Secure regardless of Prod
+		SameSite: a.cookieSameSite(),
 		Expires:  time.Now().Add(30 * 24 * time.Hour),
 	})
 }
@@ -47,8 +55,8 @@ func (a *API) clearAuthCookie(w http.ResponseWriter) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   a.Prod,
-		SameSite: http.SameSiteLaxMode,
+		Secure:   a.Prod || a.CrossSiteCookies,
+		SameSite: a.cookieSameSite(),
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 	})
