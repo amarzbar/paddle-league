@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { GiTennisBall } from "react-icons/gi";
 import { Chip } from "../components/ui";
 import { EventCard, EventCardSkeleton } from "../components/EventCard";
 import { CurrentGameSection } from "../components/CurrentGameSection";
@@ -95,7 +96,9 @@ export default function EventsHome() {
                 border: "1px solid rgba(232,230,224,0.7)",
               }}
             >
-              <div style={{ fontSize: 28, marginBottom: 8 }}>🎾</div>
+              <div style={{ color: "#14304B", marginBottom: 8 }}>
+                <GiTennisBall size={28} />
+              </div>
               <p style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 600, fontSize: 15, color: "#14304B" }}>
                 No events yet
               </p>

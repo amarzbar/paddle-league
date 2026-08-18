@@ -1,4 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom";
+import { FaTrophy } from "react-icons/fa";
 import { PrimaryButton } from "../components/ui";
 import { LeaderboardRowItem } from "../components/LeaderboardRow";
 import { CourtScoreCard } from "../components/CourtScoreCard";
@@ -33,13 +34,15 @@ export default function EventRecap() {
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ backgroundColor: "#14304B", padding: "40px 24px 32px", flexShrink: 0, textAlign: "center" }}>
-        <div style={{ fontSize: 32, marginBottom: 12 }}>🏆</div>
+        <div style={{ color: "#C4F135", marginBottom: 12 }}>
+          <FaTrophy size={32} />
+        </div>
         <h1 style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 24, color: "#FBFAF7", marginBottom: 4 }}>
           {event?.name ?? "Event"} is a wrap
         </h1>
         {winner && (
           <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 14, color: "rgba(251,250,247,0.7)" }}>
-            {winner.userId === me?.id ? "You took the top spot 🎉" : `${winner.displayName} took the top spot`}
+            {winner.userId === me?.id ? "You took the top spot" : `${winner.displayName} took the top spot`}
           </p>
         )}
       </div>

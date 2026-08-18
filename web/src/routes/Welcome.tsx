@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { GiTennisBall } from "react-icons/gi";
 import { PrimaryButton, SecondaryButton } from "../components/ui";
 import { ScoreQuadrant } from "../components/ScoreQuadrant";
 
@@ -31,7 +32,7 @@ export default function Welcome() {
                 justifyContent: "center",
               }}
             >
-              <span style={{ fontSize: 22 }}>🎾</span>
+              <GiTennisBall size={22} />
             </div>
             <span
               style={{

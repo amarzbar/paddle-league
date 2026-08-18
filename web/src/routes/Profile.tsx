@@ -15,7 +15,7 @@ export default function Profile() {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflowY: "auto", padding: "40px 24px 32px" }}>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 32 }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", marginBottom: 32 }}>
         <Avatar initials={initialsFromName(user.displayName)} size="xl" color={user.avatarColor} />
         <h1 style={{ fontFamily: "Space Grotesk, sans-serif", fontWeight: 700, fontSize: 22, color: "#14304B", marginTop: 16 }}>
           {user.displayName}

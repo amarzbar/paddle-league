@@ -1,4 +1,5 @@
 import { StatusBadge } from "./ui";
+import { GiTennisBall } from "react-icons/gi";
 import { EVENT_STATUS_CONFIG } from "../lib/statusConfig";
 import type { PaddleEvent } from "../lib/types";
 
@@ -49,13 +50,10 @@ export function EventCard({
               alignItems: "center",
               justifyContent: "center",
               flexShrink: 0,
-              color: "#FBFAF7",
-              fontFamily: "Space Grotesk, sans-serif",
-              fontWeight: 700,
-              fontSize: 20,
+              color: "#C4F135",
             }}
           >
-            {event.name.charAt(0).toUpperCase() || "R"}
+            <GiTennisBall size={24} />
           </div>
           <div>
             <div

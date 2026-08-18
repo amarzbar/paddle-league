@@ -157,7 +157,7 @@ export default function EventLive() {
     setEnding(true);
     try {
       await api.post(`/api/events/${event.id}/stop`);
-      navigate(`/events/${event.id}/recap`);
+      navigate(`/events/${event.id}/leaderboard`);
     } catch (err) {
       showToast(err instanceof ApiError ? err.message : "Couldn't end the event.");
       setEnding(false);
@@ -200,7 +200,7 @@ export default function EventLive() {
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "20px 20px 96px", display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "20px 20px 112px", display: "flex", flexDirection: "column", gap: 14 }}>
         {view === "mine" && bye && (
           <div
             className="animate-fade-in"
