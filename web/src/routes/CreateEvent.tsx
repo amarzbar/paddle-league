@@ -36,7 +36,7 @@ export default function CreateEvent() {
   const [pointsToWin, setPointsToWin] = useState(24);
   const [courtCount, setCourtCount] = useState(4);
   const [timeLimitMinutes, setTimeLimitMinutes] = useState(0);
-  const [totalRounds, setTotalRounds] = useState(8);
+  const [totalRounds, setTotalRounds] = useState<number | "">(8);
   const [isPublic, setIsPublic] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -56,7 +56,7 @@ export default function CreateEvent() {
         pointsToWin,
         timeLimitSeconds: timeLimitMinutes * 60,
         courtCount,
-        totalRounds,
+        totalRounds: totalRounds || 1,
         isPublic,
       });
       navigate(`/events/${event.id}`);
@@ -169,7 +169,8 @@ export default function CreateEvent() {
                 type="number"
                 min={1}
                 value={totalRounds}
-                onChange={(e) => setTotalRounds(Math.max(1, Number(e.target.value)))}
+                onChange={(e) => setTotalRounds(e.target.value === "" ? "" : Math.max(1, Number(e.target.value)))}
+                onBlur={() => setTotalRounds((rounds) => rounds || 1)}
               />
             </div>
 
