@@ -306,14 +306,12 @@ func (a *API) Leaderboard(w http.ResponseWriter, r *http.Request) {
 			PointsFor: e.pf, PointsAgainst: e.pa, WinPct: winPct,
 		})
 	}
-	// simple sort: wins desc, then win% desc, then point differential desc
+	// Rank by wins, then break ties by the total points scored.
 	for i := 0; i < len(out); i++ {
 		for j := i + 1; j < len(out); j++ {
 			a, b := out[i], out[j]
-			aDiff, bDiff := a.PointsFor-a.PointsAgainst, b.PointsFor-b.PointsAgainst
 			swap := b.Wins > a.Wins ||
-				(b.Wins == a.Wins && b.WinPct > a.WinPct) ||
-				(b.Wins == a.Wins && b.WinPct == a.WinPct && bDiff > aDiff)
+				(b.Wins == a.Wins && b.PointsFor > a.PointsFor)
 			if swap {
 				out[i], out[j] = out[j], out[i]
 			}

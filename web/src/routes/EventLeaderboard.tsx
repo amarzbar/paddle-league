@@ -22,8 +22,8 @@ export default function EventLeaderboard() {
 
   const sorted = useMemo(() => {
     if (!rows) return [];
-    if (mode === "wins") return rows; // server order: wins desc -> winPct desc -> point diff desc
-    return [...rows].sort((a, b) => b.pointsFor - b.pointsAgainst - (a.pointsFor - a.pointsAgainst));
+    if (mode === "wins") return rows; // server order: wins desc -> total points desc
+    return [...rows].sort((a, b) => b.pointsFor - a.pointsFor);
   }, [rows, mode]);
 
   return (

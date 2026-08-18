@@ -20,7 +20,6 @@ export function LeaderboardRowItem({
   isLast: boolean;
   mode: "wins" | "points";
 }) {
-  const pointDiff = row.pointsFor - row.pointsAgainst;
   const topThree = rank <= 3;
 
   return (
@@ -86,15 +85,13 @@ export function LeaderboardRowItem({
                 <strong style={{ color: isMe ? "#C4F135" : "#14304B" }}>
                   {row.wins}W–{row.losses}L{row.draws > 0 ? `–${row.draws}D` : ""}
                 </strong>{" "}
-                · {(row.winPct * 100).toFixed(0)}% · {pointDiff >= 0 ? "+" : ""}
-                {pointDiff} pts
+                · {row.pointsFor} pts
               </>
             ) : (
               <>
-                {row.wins}W–{row.losses}L{row.draws > 0 ? `–${row.draws}D` : ""} · {(row.winPct * 100).toFixed(0)}% ·{" "}
+                {row.wins}W–{row.losses}L{row.draws > 0 ? `–${row.draws}D` : ""} ·{" "}
                 <strong style={{ color: isMe ? "#C4F135" : "#14304B" }}>
-                  {pointDiff >= 0 ? "+" : ""}
-                  {pointDiff} pts
+                  {row.pointsFor} pts
                 </strong>
               </>
             )}
