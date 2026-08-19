@@ -203,10 +203,11 @@ func (a *API) CreateAggregateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err = tx.Exec(r.Context(), `
 		INSERT INTO event_participants (event_id, user_id)
-		SELECT DISTINCT $1, ep.user_id
+		SELECT $1::uuid, ep.user_id
 		FROM event_participants ep
 		JOIN aggregate_event_sources aes ON aes.source_event_id = ep.event_id
 		WHERE aes.aggregate_event_id = $1
+		GROUP BY ep.user_id
 		ON CONFLICT DO NOTHING
 	`, aggregate.ID)
 	if err != nil {
