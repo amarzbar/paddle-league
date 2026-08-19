@@ -44,6 +44,7 @@ func NewRouter(a *API, allowedOrigin string) http.Handler {
 			r.Post("/events/{id}/start", a.StartEvent)     // precomputes + activates the whole Americano schedule
 			r.Post("/events/{id}/complete", a.CompleteEvent)
 			r.Post("/events/{id}/stop", a.CompleteEvent) // alias: host stopping an event early is the same action as completing it
+			r.Post("/events/{id}/matches/manual", a.AddManualMatch)
 			r.Delete("/events/{id}", a.DeleteEvent)
 			r.Get("/events/{id}/leaderboard", a.Leaderboard)
 

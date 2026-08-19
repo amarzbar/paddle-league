@@ -586,3 +586,123 @@ func (a *API) CompleteEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
+
+type addManualMatchReq struct {
+	RoundNumber int    `json:"roundNumber"`
+	CourtLabel  string `json:"courtLabel"`
+	Team1P1     string `json:"team1P1"`
+	Team1P2     string `json:"team1P2"`
+	Team2P1     string `json:"team2P1"`
+	Team2P2     string `json:"team2P2"`
+	Team1Score  int    `json:"team1Score"`
+	Team2Score  int    `json:"team2Score"`
+}
+
+// AddManualMatch records an omitted completed match in an already completed
+// event. This is host-only so a participant cannot alter past standings.
+func (a *API) AddManualMatch(w http.ResponseWriter, r *http.Request) {
+	userID, _ := middleware.UserID(r.Context())
+	eventID := chi.URLParam(r, "id")
+	ev, ok := a.getEventOr404(r.Context(), w, eventID)
+	if !ok {
+		return
+	}
+	if ev.HostID != userID {
+		writeErr(w, http.StatusForbidden, "only the host can add a manual match")
+		return
+	}
+	if ev.Status != "completed" {
+		writeErr(w, http.StatusConflict, "manual matches can only be added to completed events")
+		return
+	}
+
+	var req addManualMatchReq
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	players := []string{req.Team1P1, req.Team1P2, req.Team2P1, req.Team2P2}
+	uniquePlayers := map[string]bool{}
+	for _, playerID := range players {
+		if playerID == "" {
+			writeErr(w, http.StatusBadRequest, "four player IDs are required")
+			return
+		}
+		uniquePlayers[playerID] = true
+	}
+	if len(uniquePlayers) != 4 {
+		writeErr(w, http.StatusBadRequest, "each player must appear once")
+		return
+	}
+	if req.RoundNumber < 1 || req.Team1Score < 0 || req.Team2Score < 0 {
+		writeErr(w, http.StatusBadRequest, "round number and scores must be non-negative")
+		return
+	}
+	if ev.TimeLimitSeconds == 0 && req.Team1Score+req.Team2Score != ev.PointsToWin {
+		writeErr(w, http.StatusBadRequest, "scores must equal the event target total")
+		return
+	}
+	courtLabel := strings.TrimSpace(req.CourtLabel)
+	if courtLabel == "" {
+		courtLabel = "Manual result"
+	}
+
+	tx, err := a.DB.Begin(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not start transaction")
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	var roundID string
+	err = tx.QueryRow(r.Context(), `SELECT id FROM rounds WHERE event_id = $1 AND number = $2`, eventID, req.RoundNumber).Scan(&roundID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeErr(w, http.StatusBadRequest, "round does not exist in this event")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not load round")
+		return
+	}
+
+	var participantCount int
+	err = tx.QueryRow(r.Context(), `
+		SELECT count(*) FROM event_participants
+		WHERE event_id = $1 AND user_id IN ($2, $3, $4, $5)
+	`, eventID, req.Team1P1, req.Team1P2, req.Team2P1, req.Team2P2).Scan(&participantCount)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not validate players")
+		return
+	}
+	if participantCount != 4 {
+		writeErr(w, http.StatusBadRequest, "every player must be an event participant")
+		return
+	}
+
+	var matchID string
+	winner := winnerFor(req.Team1Score, req.Team2Score)
+	err = tx.QueryRow(r.Context(), `
+		INSERT INTO matches (
+			round_id, event_id, court_label, team1_p1, team1_p2, team2_p1, team2_p2,
+			team1_score, team2_score, status, winner, started_at, completed_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'completed', $10, now(), now())
+		RETURNING id
+	`, roundID, eventID, courtLabel, req.Team1P1, req.Team1P2, req.Team2P1, req.Team2P2,
+		req.Team1Score, req.Team2Score, winner).Scan(&matchID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not create manual match")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not save manual match")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"id":         matchID,
+		"status":     "completed",
+		"winner":     winner,
+		"team1Score": req.Team1Score,
+		"team2Score": req.Team2Score,
+	})
+}
