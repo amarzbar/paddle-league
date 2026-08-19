@@ -36,6 +36,7 @@ func NewRouter(a *API, allowedOrigin string) http.Handler {
 			r.Get("/me", a.Me)
 
 			r.Post("/events", a.CreateEvent)
+			r.Post("/events/aggregate", a.CreateAggregateEvent)
 			r.Get("/events", a.ListMyEvents)
 			r.Get("/events/public", a.ListPublicEvents)
 			r.Post("/events/join", a.JoinEvent)

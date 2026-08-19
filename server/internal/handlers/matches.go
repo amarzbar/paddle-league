@@ -240,12 +240,20 @@ func (a *API) Timeout(w http.ResponseWriter, r *http.Request) {
 func (a *API) Leaderboard(w http.ResponseWriter, r *http.Request) {
 	eventID := chi.URLParam(r, "id")
 	rows, err := a.DB.Query(r.Context(), `
+		WITH leaderboard_events AS (
+			SELECT source_event_id AS event_id
+			FROM aggregate_event_sources
+			WHERE aggregate_event_id = $1
+			UNION
+			SELECT $1::uuid
+		)
 		SELECT u.id, u.display_name, u.avatar_color, m.team1_p1, m.team1_p2, m.team2_p1, m.team2_p2,
 		       m.team1_score, m.team2_score, m.winner
 		FROM matches m
+		JOIN leaderboard_events le ON le.event_id = m.event_id
 		JOIN event_participants ep ON ep.event_id = m.event_id
 		JOIN users u ON u.id = ep.user_id
-		WHERE m.event_id = $1 AND m.status = 'completed'
+		WHERE m.status = 'completed'
 	`, eventID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not load leaderboard")

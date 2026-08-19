@@ -94,6 +94,132 @@ func (a *API) CreateEvent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, ev)
 }
 
+type createAggregateEventReq struct {
+	Name           string   `json:"name"`
+	SourceEventIDs []string `json:"sourceEventIds"`
+}
+
+// CreateAggregateEvent creates a completed, read-only event whose standings
+// are derived from its completed source events. Source events stay unchanged.
+func (a *API) CreateAggregateEvent(w http.ResponseWriter, r *http.Request) {
+	userID, _ := middleware.UserID(r.Context())
+	var req createAggregateEventReq
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if len(req.SourceEventIDs) == 0 {
+		writeErr(w, http.StatusBadRequest, "at least one source event is required")
+		return
+	}
+	seenIDs := map[string]bool{}
+	for _, sourceID := range req.SourceEventIDs {
+		if sourceID == "" {
+			writeErr(w, http.StatusBadRequest, "source event IDs are required")
+			return
+		}
+		if seenIDs[sourceID] {
+			writeErr(w, http.StatusBadRequest, "source event IDs must be unique")
+			return
+		}
+		seenIDs[sourceID] = true
+	}
+
+	tx, err := a.DB.Begin(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not start transaction")
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	for _, sourceID := range req.SourceEventIDs {
+		var sourceHostID, sourceStatus string
+		err := tx.QueryRow(r.Context(), `SELECT host_id, status FROM events WHERE id = $1`, sourceID).
+			Scan(&sourceHostID, &sourceStatus)
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeErr(w, http.StatusNotFound, "source event not found")
+			return
+		}
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "could not load source event")
+			return
+		}
+		if sourceHostID != userID {
+			writeErr(w, http.StatusForbidden, "only a source event host can aggregate it")
+			return
+		}
+		if sourceStatus != "completed" {
+			writeErr(w, http.StatusConflict, "source events must be completed")
+			return
+		}
+		var isAggregate bool
+		err = tx.QueryRow(r.Context(), `
+			SELECT EXISTS(
+				SELECT 1 FROM aggregate_event_sources WHERE aggregate_event_id = $1
+			)
+		`, sourceID).Scan(&isAggregate)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "could not validate source event")
+			return
+		}
+		if isAggregate {
+			writeErr(w, http.StatusBadRequest, "aggregate events cannot be source events")
+			return
+		}
+	}
+
+	var aggregate models.Event
+	err = tx.QueryRow(r.Context(), `
+		INSERT INTO events (
+			host_id, name, join_code, status, points_to_win, time_limit_seconds,
+			court_count, total_rounds, started_at, completed_at
+		) VALUES ($1, $2, $3, 'completed', 1, 0, 1, 0, now(), now())
+		RETURNING id, host_id, name, join_code, status, points_to_win, time_limit_seconds,
+		          current_round, is_public, court_count, total_rounds, created_at, started_at, completed_at
+	`, userID, req.Name, genJoinCode()).Scan(
+		&aggregate.ID, &aggregate.HostID, &aggregate.Name, &aggregate.JoinCode, &aggregate.Status,
+		&aggregate.PointsToWin, &aggregate.TimeLimitSeconds, &aggregate.CurrentRound, &aggregate.IsPublic,
+		&aggregate.CourtCount, &aggregate.TotalRounds, &aggregate.CreatedAt, &aggregate.StartedAt, &aggregate.CompletedAt,
+	)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not create aggregate event")
+		return
+	}
+
+	for _, sourceID := range req.SourceEventIDs {
+		_, err = tx.Exec(r.Context(), `
+			INSERT INTO aggregate_event_sources (aggregate_event_id, source_event_id)
+			VALUES ($1, $2)
+		`, aggregate.ID, sourceID)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "could not save aggregate source")
+			return
+		}
+	}
+	_, err = tx.Exec(r.Context(), `
+		INSERT INTO event_participants (event_id, user_id)
+		SELECT DISTINCT $1, ep.user_id
+		FROM event_participants ep
+		JOIN aggregate_event_sources aes ON aes.source_event_id = ep.event_id
+		WHERE aes.aggregate_event_id = $1
+		ON CONFLICT DO NOTHING
+	`, aggregate.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not add aggregate participants")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not save aggregate event")
+		return
+	}
+	writeJSON(w, http.StatusCreated, aggregate)
+}
+
 const eventColumns = `e.id, e.host_id, e.name, e.join_code, e.status, e.points_to_win, e.time_limit_seconds, e.current_round, e.is_public, e.court_count, e.total_rounds, e.created_at, e.started_at, e.completed_at`
 
 func scanEvent(row interface{ Scan(...any) error }, ev *models.Event) error {
