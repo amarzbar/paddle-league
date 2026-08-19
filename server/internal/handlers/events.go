@@ -665,17 +665,26 @@ func (a *API) AddManualMatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var participantCount int
+	var userCount int
 	err = tx.QueryRow(r.Context(), `
-		SELECT count(*) FROM event_participants
-		WHERE event_id = $1 AND user_id IN ($2, $3, $4, $5)
-	`, eventID, req.Team1P1, req.Team1P2, req.Team2P1, req.Team2P2).Scan(&participantCount)
+		SELECT count(*) FROM users
+		WHERE id IN ($1, $2, $3, $4)
+	`, req.Team1P1, req.Team1P2, req.Team2P1, req.Team2P2).Scan(&userCount)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not validate players")
 		return
 	}
-	if participantCount != 4 {
-		writeErr(w, http.StatusBadRequest, "every player must be an event participant")
+	if userCount != 4 {
+		writeErr(w, http.StatusBadRequest, "every player must exist")
+		return
+	}
+	_, err = tx.Exec(r.Context(), `
+		INSERT INTO event_participants (event_id, user_id) VALUES
+			($1, $2), ($1, $3), ($1, $4), ($1, $5)
+		ON CONFLICT DO NOTHING
+	`, eventID, req.Team1P1, req.Team1P2, req.Team2P1, req.Team2P2)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not add match participants")
 		return
 	}
 
